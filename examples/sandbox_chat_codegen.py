@@ -5,11 +5,9 @@ from typing import Any
 
 from contextflow import Agent, AgentSandbox, ContextNode, MessageRole, ResponseParser
 from contextflow.core.parser import ParseError
-from contextflow.providers import ProviderConfig, create_client
 
 
-BACKEND = "openai"
-MODEL = os.getenv("QWEN_MODEL", "qwen-flash")
+MODEL = os.getenv("QWEN_MODEL", "openai/qwen-flash")
 BASE_URL = os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
 API_KEY = os.getenv("QWEN_API_KEY") or os.getenv("DASHSCOPE_API_KEY") or "dummy"
 ENABLE_THINKING = True
@@ -35,21 +33,15 @@ def execute_tool(agent: Agent, tool_name: str, args: dict[str, Any]) -> dict[str
 
 
 async def main() -> None:
-    config = ProviderConfig(
-        backend=BACKEND,
-        model=MODEL,
-        base_url=BASE_URL,
-        api_key=resolve_api_key(API_KEY),
-        enable_thinking=ENABLE_THINKING,
-    )
-    llm_client = create_client(config)
-
     sandbox = AgentSandbox.create("examples/_sandbox_smoke")
 
     base_agent = Agent(
-        model=config.model,
+        model=MODEL,
         name="sandbox_code_agent",
         description="Writes and edits code in an isolated sandbox based on user chat.",
+        base_url=BASE_URL,
+        api_key=resolve_api_key(API_KEY),
+        enable_thinking=ENABLE_THINKING,
         instruction=(
             "You are a coding assistant with sandbox tools. "
             "For each turn, return ONLY valid JSON with one of these schemas:\n"
@@ -87,7 +79,6 @@ async def main() -> None:
                 try:
                     result = await agent.run_once(
                         user_input=pending_user_input,
-                        llm_client=llm_client,
                         history=history,
                     )
                 except Exception as exc:

@@ -2,13 +2,11 @@ import asyncio
 import os
 
 from contextflow import Agent
-from contextflow.providers import ProviderConfig, create_client
 
 
-BACKEND = "openai"
-MODEL = os.getenv("QWEN_MODEL", "qwen-flash")
-BASE_URL = os.getenv("OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("DASHSCOPE_API_KEY") or "dummy"
+MODEL = os.getenv("QWEN_MODEL", "openai/qwen-flash")
+BASE_URL = os.getenv("QWEN_BASE_URL") or os.getenv("OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+API_KEY = os.getenv("QWEN_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("DASHSCOPE_API_KEY") or "dummy"
 ENABLE_THINKING = True
 USER_INPUT = "What is the current time in Tokyo?"
 
@@ -16,7 +14,7 @@ USER_INPUT = "What is the current time in Tokyo?"
 def resolve_api_key(explicit_api_key: str | None) -> str:
     if explicit_api_key:
         return explicit_api_key
-    return os.getenv("OPENAI_API_KEY") or os.getenv("DASHSCOPE_API_KEY") or "dummy"
+    return os.getenv("QWEN_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("DASHSCOPE_API_KEY") or "dummy"
 
 
 def get_current_time(city: str) -> dict:
@@ -25,30 +23,22 @@ def get_current_time(city: str) -> dict:
 
 
 async def main() -> None:
-    config = ProviderConfig(
-        backend=BACKEND,
-        model=MODEL,
-        base_url=BASE_URL,
-        api_key=resolve_api_key(API_KEY),
-        enable_thinking=ENABLE_THINKING,
-    )
-
     root_agent = Agent(
-        model=config.model,
+        model=MODEL,
         name="root_agent",
         description="Tells the current time in a specified city.",
         instruction=(
             "You are a helpful assistant that tells the current time in cities. "
             "When needed, propose using the 'get_current_time' tool with JSON arguments."
         ),
+        base_url=BASE_URL,
+        api_key=resolve_api_key(API_KEY),
+        enable_thinking=ENABLE_THINKING,
         tools=[get_current_time],
     )
 
-    llm_client = create_client(config)
-
     result = await root_agent.run_once(
         user_input=USER_INPUT,
-        llm_client=llm_client,
     )
 
     print("\n=== Raw messages[] ===")
