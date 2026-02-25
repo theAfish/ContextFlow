@@ -7,7 +7,7 @@ from contextflow import Agent, AgentSandbox, ContextNode, MessageRole, ResponseP
 from contextflow.core.parser import ParseError
 
 
-MODEL = os.getenv("QWEN_MODEL", "openai/qwen-flash")
+MODEL = os.getenv("QWEN_MODEL", "openai/qwen3-max")
 BASE_URL = os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
 API_KEY = os.getenv("QWEN_API_KEY") or os.getenv("DASHSCOPE_API_KEY") or "dummy"
 ENABLE_THINKING = True
@@ -85,11 +85,13 @@ async def main() -> None:
                     print("\nModel request failed:")
                     print(str(exc))
                     print(
-                        "Set OPENAI_BASE_URL and OPENAI_API_KEY (or DASHSCOPE_API_KEY), then retry."
+                        "Check API key/base URL, or retry with streaming-enabled behavior if provider requires it. "
+                        "You can also set QWEN_BASE_URL/QWEN_API_KEY (or OPENAI_BASE_URL/OPENAI_API_KEY)."
                     )
                     break
                 assistant_text = result.output_text.strip()
-                
+                print("\nAssistant:")
+                print(assistant_text)
 
                 history.append(ContextNode(role=MessageRole.USER, content=pending_user_input))
                 history.append(ContextNode(role=MessageRole.ASSISTANT, content=assistant_text))
@@ -100,6 +102,8 @@ async def main() -> None:
                     print("\nAssistant:")
                     print(assistant_text)
                     break
+
+                print(payload)
 
                 action = payload.get("action")
                 if action == "final":

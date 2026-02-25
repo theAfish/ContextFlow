@@ -20,30 +20,51 @@ class OpenAICompatibleClient:
     def __init__(self, config: ProviderConfig) -> None:
         self._config = config
 
+    @staticmethod
+    def _should_retry_with_streaming(exc: Exception) -> bool:
+        text = str(exc).lower()
+        return (
+            "switch to streaming mode" in text
+            or "generation timed out" in text
+            or "invalidparameter" in text and "timed out" in text
+        )
+
+    async def _complete_via_stream(self, messages: list[dict[str, Any]]) -> str:
+        parts: list[str] = []
+        async for event in self.stream(messages):
+            if event.kind == "content" and event.text:
+                parts.append(event.text)
+        return "".join(parts)
+
     async def complete(self, messages: list[dict[str, Any]]) -> str:
-        if self._config.backend == "openai":
-            openai_module = importlib.import_module("openai")
-            async_openai_cls = getattr(openai_module, "AsyncOpenAI")
-            client = async_openai_cls(api_key=self._config.api_key, base_url=self._config.base_url)
-            response = await client.chat.completions.create(
+        try:
+            if self._config.backend == "openai":
+                openai_module = importlib.import_module("openai")
+                async_openai_cls = getattr(openai_module, "AsyncOpenAI")
+                client = async_openai_cls(api_key=self._config.api_key, base_url=self._config.base_url)
+                response = await client.chat.completions.create(
+                    model=self._config.model,
+                    messages=messages,
+                    temperature=self._config.temperature,
+                    extra_body={"enable_thinking": self._config.enable_thinking},
+                )
+                return response.choices[0].message.content or ""
+
+            litellm_module = importlib.import_module("litellm")
+            acompletion = getattr(litellm_module, "acompletion")
+            response = await acompletion(
                 model=self._config.model,
                 messages=messages,
+                api_key=self._config.api_key,
+                api_base=self._config.base_url,
                 temperature=self._config.temperature,
                 extra_body={"enable_thinking": self._config.enable_thinking},
             )
             return response.choices[0].message.content or ""
-
-        litellm_module = importlib.import_module("litellm")
-        acompletion = getattr(litellm_module, "acompletion")
-        response = await acompletion(
-            model=self._config.model,
-            messages=messages,
-            api_key=self._config.api_key,
-            api_base=self._config.base_url,
-            temperature=self._config.temperature,
-            extra_body={"enable_thinking": self._config.enable_thinking},
-        )
-        return response.choices[0].message.content or ""
+        except Exception as exc:
+            if not self._should_retry_with_streaming(exc):
+                raise
+            return await self._complete_via_stream(messages)
 
     async def stream(self, messages: list[dict[str, Any]]) -> AsyncIterator[StreamEvent]:
         if self._config.backend == "openai":
