@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "contextflow"
+version = "0.1.0"
+description = "Context-first framework for transparent LLM orchestration"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "ContextFlow Contributors" }]
+dependencies = [
+  "fastapi>=0.116.0",
+  "pydantic>=2.8.0",
+  "uvicorn>=0.30.0",
+]
+
+[project.optional-dependencies]
+postgres = [
+  "sqlalchemy[asyncio]>=2.0.31",
+  "asyncpg>=0.29.0",
+  "pgvector>=0.2.5",
+]
+llm = [
+  "litellm>=1.42.0",
+  "openai>=1.40.0",
+  "anthropic>=0.34.0",
+]
+sandbox = [
+  "k8s-agent-sandbox>=0.1.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+addopts = "-q"
