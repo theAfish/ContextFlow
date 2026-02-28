@@ -1,19 +1,13 @@
 import asyncio
 import os
 
-from contextflow import Agent, ContextNode, MessageRole
+from contextflow import Agent, ContextNode, MessageRole, resolve_api_key, resolve_base_url
 
 
 MODEL = os.getenv("QWEN_MODEL", "openai/qwen-flash")
-BASE_URL = os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-API_KEY = os.getenv("QWEN_API_KEY") or os.getenv("DASHSCOPE_API_KEY") or "dummy"
+BASE_URL = resolve_base_url()
+API_KEY = resolve_api_key()
 ENABLE_THINKING = False
-
-
-def resolve_api_key(explicit_api_key: str | None) -> str:
-    if explicit_api_key:
-        return explicit_api_key
-    return os.getenv("QWEN_API_KEY") or os.getenv("DASHSCOPE_API_KEY") or "dummy"
 
 
 async def main() -> None:
@@ -23,7 +17,7 @@ async def main() -> None:
         description="Multi-turn chat assistant.",
         instruction="You are a concise and helpful assistant for multi-turn conversation.",
         base_url=BASE_URL,
-        api_key=resolve_api_key(API_KEY),
+        api_key=API_KEY,
         enable_thinking=ENABLE_THINKING,
         tools=[],
     )

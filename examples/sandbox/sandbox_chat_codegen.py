@@ -3,33 +3,15 @@ import json
 import os
 from typing import Any
 
-from contextflow import Agent, AgentSandbox, ContextNode, MessageRole, ResponseParser
-from contextflow.core.parser import ParseError
+from contextflow import Agent, AgentSandbox, ContextNode, MessageRole, ResponseParser, ParseError
+from contextflow import resolve_api_key, resolve_base_url
 
 
 MODEL = os.getenv("QWEN_MODEL", "openai/qwen3-max")
-BASE_URL = os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-API_KEY = os.getenv("QWEN_API_KEY") or os.getenv("DASHSCOPE_API_KEY") or "dummy"
+BASE_URL = resolve_base_url()
+API_KEY = resolve_api_key()
 ENABLE_THINKING = True
 MAX_TOOL_STEPS = 6
-
-
-def resolve_api_key(explicit_api_key: str | None) -> str:
-    if explicit_api_key:
-        return explicit_api_key
-    return os.getenv("QWEN_API_KEY") or os.getenv("DASHSCOPE_API_KEY") or "dummy"
-
-
-def execute_tool(agent: Agent, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
-    tool_map = {tool.__name__: tool for tool in agent.tools}
-    if tool_name not in tool_map:
-        return {"ok": False, "error": f"Unknown tool: {tool_name}"}
-
-    try:
-        output = tool_map[tool_name](**args)
-        return {"ok": True, "result": output}
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
 
 
 async def main() -> None:
@@ -40,7 +22,7 @@ async def main() -> None:
         name="sandbox_code_agent",
         description="Writes and edits code in an isolated sandbox based on user chat.",
         base_url=BASE_URL,
-        api_key=resolve_api_key(API_KEY),
+        api_key=API_KEY,
         enable_thinking=ENABLE_THINKING,
         instruction=(
             "You are a coding assistant with sandbox tools. "
@@ -121,7 +103,7 @@ async def main() -> None:
                 if not isinstance(args, dict):
                     args = {}
 
-                tool_result = execute_tool(agent, tool_name, args)
+                tool_result = agent.execute_tool(tool_name, args)
                 tool_feedback = {
                     "tool": tool_name,
                     "args": args,

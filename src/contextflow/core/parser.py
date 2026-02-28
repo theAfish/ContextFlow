@@ -5,9 +5,7 @@ from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-
-class ParseError(ValueError):
-    pass
+from contextflow.exceptions import ParseError  # noqa: F401 – re-exported for backward compat
 
 
 TModel = TypeVar("TModel", bound=BaseModel)

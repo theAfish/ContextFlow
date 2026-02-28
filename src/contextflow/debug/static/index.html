@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ContextFlow Debug</title>
+<style>
+/* ── Reset & Variables ─────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0d1117;
+  --bg-panel: #161b22;
+  --bg-input: #0d1117;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --text-dim: #8b949e;
+  --accent: #58a6ff;
+  --accent-dim: #1f6feb;
+  --green: #3fb950;
+  --yellow: #d29922;
+  --red: #f85149;
+  --purple: #bc8cff;
+  --radius: 8px;
+  --mono: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+}
+
+html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); }
+
+/* ── Layout ────────────────────────────────────────────────────────── */
+.app { display: flex; height: 100vh; }
+
+.chat-pane {
+  width: 45%;
+  min-width: 340px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+}
+
+.debug-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Header ────────────────────────────────────────────────────────── */
+.header {
+  padding: 12px 20px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header h1 { font-size: 16px; font-weight: 600; }
+.header .badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: var(--accent-dim);
+  color: #fff;
+}
+.header .status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+
+.agent-info {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-left: auto;
+  text-align: right;
+}
+
+/* ── Chat ──────────────────────────────────────────────────────────── */
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.msg {
+  max-width: 88%;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.msg.user {
+  align-self: flex-end;
+  background: var(--accent-dim);
+  color: #fff;
+  border-bottom-right-radius: 2px;
+}
+.msg.assistant {
+  align-self: flex-start;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 2px;
+}
+.msg .msg-meta {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+.msg.error {
+  background: rgba(248, 81, 73, .15);
+  border: 1px solid var(--red);
+  color: var(--red);
+}
+
+.chat-input-area {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  display: flex;
+  gap: 8px;
+}
+.chat-input-area textarea {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  min-height: 42px;
+  max-height: 120px;
+}
+.chat-input-area textarea:focus { border-color: var(--accent); }
+.chat-input-area button {
+  padding: 0 18px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background .15s;
+}
+.chat-input-area button:hover { background: var(--accent-dim); }
+.chat-input-area button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── Debug Tabs ────────────────────────────────────────────────────── */
+.tab-bar {
+  display: flex;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+.tab-bar button {
+  flex: 1;
+  padding: 10px 0;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all .15s;
+}
+.tab-bar button:hover { color: var(--text); }
+.tab-bar button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.tab-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+.tab-page { display: none; }
+.tab-page.active { display: block; }
+
+/* ── State Panel ──────────────────────────────────────────────────── */
+.state-current {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.state-label {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent);
+  font-family: var(--mono);
+}
+.state-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+.state-badge.can-run { background: rgba(63,185,80,.2); color: var(--green); }
+.state-badge.blocked { background: rgba(248,81,73,.2); color: var(--red); }
+
+.state-graph {
+  margin: 16px 0;
+  padding: 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.state-graph h3 { font-size: 13px; color: var(--text-dim); margin-bottom: 10px; }
+
+.state-node {
+  display: inline-block;
+  padding: 4px 12px;
+  margin: 3px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-family: var(--mono);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  background: var(--bg-panel);
+}
+.state-node.current { border-color: var(--accent); color: var(--accent); background: rgba(88,166,255,.1); }
+.state-node.run-allowed { border-color: var(--green); }
+
+.transition-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 12px;
+}
+.transition-table th {
+  text-align: left;
+  padding: 6px 10px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  font-weight: 500;
+}
+.transition-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.transition-table tr.current-row { background: rgba(88,166,255,.06); }
+
+.transition-arrow { color: var(--text-dim); margin: 0 4px; }
+
+/* ── Transition Buttons ───────────────────────────────────────────── */
+.transition-buttons {
+  margin: 12px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.transition-buttons button {
+  padding: 4px 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  font-family: var(--mono);
+  cursor: pointer;
+  transition: all .15s;
+}
+.transition-buttons button:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── History Panel ────────────────────────────────────────────────── */
+.history-entry {
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.history-entry:nth-child(odd) { background: rgba(255,255,255,.02); }
+.history-entry .idx { color: var(--text-dim); font-size: 11px; min-width: 24px; }
+.history-entry .states { font-family: var(--mono); font-size: 12px; }
+.history-entry .ts { color: var(--text-dim); font-size: 11px; margin-left: auto; }
+
+/* ── Session / Conversation Panel ─────────────────────────────────── */
+.session-msg {
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+.session-msg .role {
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.session-msg .role.user { color: var(--accent); }
+.session-msg .role.assistant { color: var(--green); }
+.session-msg .role.system { color: var(--yellow); }
+.session-msg .content { white-space: pre-wrap; line-height: 1.5; }
+.session-msg .ts { font-size: 10px; color: var(--text-dim); margin-top: 4px; }
+
+/* ── LLM Calls Panel ──────────────────────────────────────────────── */
+.call-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.call-header {
+  padding: 10px 14px;
+  background: var(--bg-panel);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.call-header:hover { background: rgba(255,255,255,.03); }
+.call-id {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--purple);
+}
+.call-state {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: rgba(88,166,255,.1);
+  color: var(--accent);
+}
+.call-duration {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.call-tokens {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: auto;
+}
+.call-chevron {
+  color: var(--text-dim);
+  font-size: 12px;
+  transition: transform .15s;
+}
+.call-card.open .call-chevron { transform: rotate(90deg); }
+.call-body {
+  display: none;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+}
+.call-card.open .call-body { display: block; }
+
+.call-section h4 {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin: 10px 0 6px;
+}
+.call-section h4:first-child { margin-top: 0; }
+
+.call-messages {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+  font-size: 12px;
+  font-family: var(--mono);
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+.call-response {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  max-height: 250px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* ── Stats bar ─────────────────────────────────────────────────────── */
+.stats-bar {
+  padding: 8px 16px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 20px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.stats-bar .stat-val { color: var(--text); font-weight: 600; }
+
+/* ── Scrollbar ─────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+/* ── Empty state ───────────────────────────────────────────────────── */
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+.empty-state .icon { font-size: 32px; margin-bottom: 8px; }
+
+/* ── WS indicator ──────────────────────────────────────────────────── */
+.ws-status {
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ws-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+}
+.ws-dot.connected { background: var(--green); }
+.ws-dot.disconnected { background: var(--red); }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ─── Chat Pane ─────────────────────────────────────────────── -->
+  <div class="chat-pane">
+    <div class="header">
+      <div class="status-dot"></div>
+      <h1>ContextFlow Debug</h1>
+      <span class="badge" id="model-badge">—</span>
+      <div class="agent-info">
+        <div id="agent-name">—</div>
+        <div class="ws-status">
+          <div class="ws-dot disconnected" id="ws-dot"></div>
+          <span id="ws-label">disconnected</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="chat-messages" id="chat-messages">
+      <div class="empty-state">
+        <div class="icon">💬</div>
+        Send a message to start chatting with the agent.
+      </div>
+    </div>
+
+    <div class="chat-input-area">
+      <textarea id="chat-input" rows="1" placeholder="Type a message..." autofocus></textarea>
+      <button id="send-btn" onclick="sendMessage()">Send</button>
+    </div>
+  </div>
+
+  <!-- ─── Debug Pane ────────────────────────────────────────────── -->
+  <div class="debug-pane">
+    <div class="tab-bar">
+      <button class="active" data-tab="state">State</button>
+      <button data-tab="session">Session</button>
+      <button data-tab="calls">LLM Calls</button>
+    </div>
+
+    <div class="tab-content">
+      <!-- State Tab -->
+      <div class="tab-page active" id="tab-state">
+        <div class="state-current">
+          <span style="color:var(--text-dim);font-size:13px;">Current State:</span>
+          <span class="state-label" id="current-state">—</span>
+          <span class="state-badge can-run" id="run-badge">can run</span>
+        </div>
+
+        <div>
+          <span style="color:var(--text-dim);font-size:12px;">Allowed transitions →</span>
+          <div class="transition-buttons" id="transition-buttons"></div>
+        </div>
+
+        <div class="state-graph">
+          <h3>All States</h3>
+          <div id="state-nodes"></div>
+        </div>
+
+        <div class="state-graph">
+          <h3>Transition Table</h3>
+          <table class="transition-table" id="transition-table">
+            <thead><tr><th>From</th><th></th><th>To</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div class="state-graph">
+          <h3>Transition History</h3>
+          <div id="state-history"></div>
+        </div>
+      </div>
+
+      <!-- Session Tab -->
+      <div class="tab-page" id="tab-session">
+        <div id="session-messages">
+          <div class="empty-state"><div class="icon">📋</div>No messages yet.</div>
+        </div>
+      </div>
+
+      <!-- LLM Calls Tab -->
+      <div class="tab-page" id="tab-calls">
+        <div id="llm-calls">
+          <div class="empty-state"><div class="icon">🔍</div>No LLM calls recorded yet.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-bar">
+      <span>Messages: <span class="stat-val" id="stat-msgs">0</span></span>
+      <span>LLM Calls: <span class="stat-val" id="stat-calls">0</span></span>
+      <span>State Changes: <span class="stat-val" id="stat-states">0</span></span>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────────
+let wsConnected = false;
+let ws = null;
+let sending = false;
+
+// ── DOM helpers ──────────────────────────────────────────────────────
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
+
+// ── Tabs ─────────────────────────────────────────────────────────────
+$$('.tab-bar button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    $$('.tab-bar button').forEach(b => b.classList.remove('active'));
+    $$('.tab-page').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    $(`#tab-${btn.dataset.tab}`).classList.add('active');
+  });
+});
+
+// ── Auto-resize textarea ─────────────────────────────────────────────
+const chatInput = $('#chat-input');
+chatInput.addEventListener('input', () => {
+  chatInput.style.height = 'auto';
+  chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+});
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+// ── API helpers ──────────────────────────────────────────────────────
+async function apiFetch(path, opts = {}) {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  return res.json();
+}
+
+// ── Chat ─────────────────────────────────────────────────────────────
+function appendChatMsg(role, text) {
+  const container = $('#chat-messages');
+  // Remove empty state
+  const empty = container.querySelector('.empty-state');
+  if (empty) empty.remove();
+
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  div.textContent = text;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+async function sendMessage() {
+  const text = chatInput.value.trim();
+  if (!text || sending) return;
+
+  sending = true;
+  $('#send-btn').disabled = true;
+  chatInput.value = '';
+  chatInput.style.height = 'auto';
+
+  appendChatMsg('user', text);
+
+  try {
+    const data = await apiFetch('/api/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message: text }),
+    });
+
+    if (data.ok) {
+      appendChatMsg('assistant', data.response);
+      if (data.status) updateStatus(data.status);
+    } else {
+      appendChatMsg('error', `Error: ${data.error}`);
+    }
+  } catch (err) {
+    appendChatMsg('error', `Network error: ${err.message}`);
+  }
+
+  sending = false;
+  $('#send-btn').disabled = false;
+  chatInput.focus();
+
+  // Refresh debug panels
+  refreshAll();
+}
+
+// ── Status / State ───────────────────────────────────────────────────
+function updateStatus(s) {
+  $('#model-badge').textContent = s.model || '—';
+  $('#agent-name').textContent = s.agent_name || '—';
+  $('#current-state').textContent = s.current_state || '(none)';
+  $('#stat-msgs').textContent = s.total_messages;
+  $('#stat-calls').textContent = s.total_llm_calls;
+
+  const badge = $('#run-badge');
+  if (s.can_run) {
+    badge.textContent = 'can run';
+    badge.className = 'state-badge can-run';
+  } else {
+    badge.textContent = 'blocked';
+    badge.className = 'state-badge blocked';
+  }
+
+  // Transition buttons
+  const btns = $('#transition-buttons');
+  btns.innerHTML = '';
+  (s.allowed_transitions || []).forEach(st => {
+    const b = document.createElement('button');
+    b.textContent = `→ ${st}`;
+    b.onclick = () => doTransition(st);
+    btns.appendChild(b);
+  });
+}
+
+async function doTransition(target) {
+  try {
+    const data = await apiFetch('/api/transition', {
+      method: 'POST',
+      body: JSON.stringify({ target_state: target }),
+    });
+    if (data.ok && data.status) {
+      updateStatus(data.status);
+    } else if (!data.ok) {
+      alert('Transition failed: ' + data.error);
+    }
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+  refreshAll();
+}
+
+// ── State Machine Detail ─────────────────────────────────────────────
+async function refreshState() {
+  try {
+    const sm = await apiFetch('/api/state');
+    if (sm.error) {
+      $('#state-nodes').innerHTML = '<span style="color:var(--text-dim)">No state machine</span>';
+      return;
+    }
+
+    // State nodes
+    const nodesDiv = $('#state-nodes');
+    nodesDiv.innerHTML = '';
+    (sm.all_states || []).forEach(st => {
+      const span = document.createElement('span');
+      span.className = 'state-node';
+      if (st === sm.current) span.classList.add('current');
+      if (sm.run_states && sm.run_states.includes(st)) span.classList.add('run-allowed');
+      span.textContent = st;
+      nodesDiv.appendChild(span);
+    });
+
+    // Transition table
+    const tbody = $('#transition-table tbody');
+    tbody.innerHTML = '';
+    if (sm.transitions) {
+      Object.entries(sm.transitions).forEach(([from, tos]) => {
+        tos.forEach(to => {
+          const tr = document.createElement('tr');
+          if (from === sm.current) tr.classList.add('current-row');
+          tr.innerHTML = `<td>${from}</td><td class="transition-arrow">→</td><td>${to}</td>`;
+          tbody.appendChild(tr);
+        });
+      });
+    }
+
+    // History
+    const histDiv = $('#state-history');
+    if (!sm.history || sm.history.length === 0) {
+      histDiv.innerHTML = '<div style="color:var(--text-dim);font-size:13px">No transitions yet.</div>';
+    } else {
+      histDiv.innerHTML = sm.history.map((h, i) =>
+        `<div class="history-entry">
+          <span class="idx">${i + 1}</span>
+          <span class="states">${h.from_state} <span class="transition-arrow">→</span> ${h.to_state}</span>
+          <span class="ts">${new Date(h.timestamp).toLocaleTimeString()}</span>
+        </div>`
+      ).join('');
+    }
+
+    $('#stat-states').textContent = (sm.history || []).length;
+  } catch {}
+}
+
+// ── Session / Conversation ───────────────────────────────────────────
+async function refreshSession() {
+  try {
+    const msgs = await apiFetch('/api/conversation');
+    const container = $('#session-messages');
+
+    if (!msgs || msgs.length === 0) {
+      container.innerHTML = '<div class="empty-state"><div class="icon">📋</div>No messages yet.</div>';
+      return;
+    }
+
+    container.innerHTML = msgs.map(m => {
+      const role = m.role || 'unknown';
+      return `<div class="session-msg">
+        <div class="role ${role}">${role}</div>
+        <div class="content">${escapeHtml(m.content)}</div>
+        <div class="ts">${m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : ''}</div>
+      </div>`;
+    }).join('');
+  } catch {}
+}
+
+// ── LLM Calls ────────────────────────────────────────────────────────
+async function refreshCalls() {
+  try {
+    const calls = await apiFetch('/api/calls');
+    const container = $('#llm-calls');
+
+    if (!calls || calls.length === 0) {
+      container.innerHTML = '<div class="empty-state"><div class="icon">🔍</div>No LLM calls recorded yet.</div>';
+      return;
+    }
+
+    container.innerHTML = calls.map((c, i) => {
+      const reqPreview = (c.request_messages || [])
+        .map(m => `[${m.role}] ${(m.content || '').substring(0, 120)}${(m.content || '').length > 120 ? '…' : ''}`)
+        .join('\n');
+
+      const fullReq = JSON.stringify(c.request_messages, null, 2);
+
+      return `<div class="call-card" id="call-${c.call_id}">
+        <div class="call-header" onclick="toggleCall('${c.call_id}')">
+          <span class="call-id">#${c.call_id}</span>
+          <span class="call-state">${c.agent_state || '—'}</span>
+          <span class="call-duration">${c.duration_ms}ms</span>
+          <span class="call-tokens">~${c.token_estimate_in} in / ~${c.token_estimate_out} out tokens</span>
+          <span class="call-chevron">▶</span>
+        </div>
+        <div class="call-body">
+          <div class="call-section">
+            <h4>Request Messages</h4>
+            <div class="call-messages">${escapeHtml(fullReq)}</div>
+          </div>
+          <div class="call-section">
+            <h4>Response</h4>
+            <div class="call-response">${escapeHtml(c.response_text)}</div>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch {}
+}
+
+function toggleCall(callId) {
+  const card = document.getElementById(`call-${callId}`);
+  if (card) card.classList.toggle('open');
+}
+
+// ── Utilities ────────────────────────────────────────────────────────
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text || '';
+  return div.innerHTML;
+}
+
+// ── Refresh everything ───────────────────────────────────────────────
+async function refreshAll() {
+  const status = await apiFetch('/api/status');
+  updateStatus(status);
+  await Promise.all([refreshState(), refreshSession(), refreshCalls()]);
+}
+
+// ── WebSocket ────────────────────────────────────────────────────────
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+  ws.onopen = () => {
+    wsConnected = true;
+    $('#ws-dot').className = 'ws-dot connected';
+    $('#ws-label').textContent = 'connected';
+  };
+
+  ws.onclose = () => {
+    wsConnected = false;
+    $('#ws-dot').className = 'ws-dot disconnected';
+    $('#ws-label').textContent = 'reconnecting…';
+    setTimeout(connectWS, 2000);
+  };
+
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = (evt) => {
+    try {
+      const msg = JSON.parse(evt.data);
+      if (msg.type === 'pong') return;
+
+      // Refresh relevant panel
+      if (msg.type === 'llm_call') {
+        refreshCalls();
+        apiFetch('/api/status').then(updateStatus);
+      } else if (msg.type === 'state_change') {
+        refreshState();
+        apiFetch('/api/status').then(updateStatus);
+      } else if (msg.type === 'conversation') {
+        refreshSession();
+      }
+    } catch {}
+  };
+}
+
+// ── Init ─────────────────────────────────────────────────────────────
+refreshAll();
+connectWS();
+// Poll status every 5s as fallback
+setInterval(() => apiFetch('/api/status').then(updateStatus).catch(() => {}), 5000);
+</script>
+</body>
+</html>

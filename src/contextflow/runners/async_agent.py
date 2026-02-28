@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
-from typing import Any, Protocol
+from dataclasses import dataclass, field
+from typing import Any
 
 from contextflow.core.models import ContextStack
-
-
-class AsyncLLMClient(Protocol):
-    async def complete(self, messages: list[dict[str, Any]]) -> str: ...
-
+from contextflow.providers.client import AsyncLLMClient  # single protocol source
 
 PreInterceptor = Callable[[ContextStack], Awaitable[ContextStack]]
 PostInterceptor = Callable[[str], Awaitable[str]]
@@ -17,9 +13,11 @@ PostInterceptor = Callable[[str], Awaitable[str]]
 
 @dataclass(slots=True)
 class AsyncAgentRunner:
+    """Runs a single LLM turn with optional pre/post interceptors."""
+
     llm_client: AsyncLLMClient
-    pre_interceptors: list[PreInterceptor]
-    post_interceptors: list[PostInterceptor]
+    pre_interceptors: list[PreInterceptor] = field(default_factory=list)
+    post_interceptors: list[PostInterceptor] = field(default_factory=list)
 
     async def run(self, stack: ContextStack) -> str:
         active_stack = stack

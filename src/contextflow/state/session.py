@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import Any
 from uuid import uuid4
 
 from contextflow.core.models import ContextNode, ContextStack
@@ -43,7 +44,7 @@ class SessionManager:
         session.stack.add(node)
         return session
 
-    def render_messages(self, session_id: str) -> list[dict]:
+    def render_messages(self, session_id: str) -> list[dict[str, Any]]:
         session = self.get_or_create(session_id)
         return session.stack.render_messages()
 

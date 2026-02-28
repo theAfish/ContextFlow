@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from contextflow.agents.agent import Agent, ToolFunc
+from contextflow.exceptions import SandboxError
 
 
 @dataclass(slots=True)
@@ -30,6 +31,8 @@ class SandboxFileEntry:
 
 
 class AgentSandbox:
+    """Sandbox for isolated file/code operations with optional k8s backend."""
+
     def __init__(
         self,
         *,
@@ -44,8 +47,12 @@ class AgentSandbox:
         self._python_executable = python_executable
         self._entered = False
 
+    # ------------------------------------------------------------------
+    # Construction helpers
+    # ------------------------------------------------------------------
+
     @classmethod
-    def create(cls, workspace: str | Path, *, python_executable: str = "python") -> "AgentSandbox":
+    def create(cls, workspace: str | Path, *, python_executable: str = "python") -> AgentSandbox:
         root = Path(workspace).resolve()
         root.mkdir(parents=True, exist_ok=True)
         return cls(workspace=root, mode="local", python_executable=python_executable)
@@ -60,7 +67,7 @@ class AgentSandbox:
         api_url: str | None = None,
         server_port: int = 8888,
         enable_tracing: bool = False,
-    ) -> "AgentSandbox":
+    ) -> AgentSandbox:
         try:
             sandbox_module = importlib.import_module("k8s_agent_sandbox")
         except ImportError as exc:
@@ -78,10 +85,13 @@ class AgentSandbox:
             server_port=server_port,
             enable_tracing=enable_tracing,
         )
-        sandbox = cls(workspace=None, mode="k8s", client=client)
-        return sandbox
+        return cls(workspace=None, mode="k8s", client=client)
 
-    def __enter__(self) -> "AgentSandbox":
+    # ------------------------------------------------------------------
+    # Context manager
+    # ------------------------------------------------------------------
+
+    def __enter__(self) -> AgentSandbox:
         if self.mode == "k8s" and self._client and not self._entered:
             self._client.__enter__()
             self._entered = True
@@ -95,26 +105,47 @@ class AgentSandbox:
             self._client.__exit__(None, None, None)
             self._entered = False
 
+    # ------------------------------------------------------------------
+    # Internal guards – eliminates the ``if mode == "k8s": if not client``
+    # boilerplate that was previously repeated in every public method.
+    # ------------------------------------------------------------------
+
+    @property
+    def _is_k8s(self) -> bool:
+        return self.mode == "k8s"
+
+    def _require_k8s_client(self) -> Any:
+        """Return the k8s client or raise ``SandboxError``."""
+        if self._client is None:
+            raise SandboxError("Sandbox client is not initialized.")
+        return self._client
+
+    def _require_local_workspace(self) -> Path:
+        """Return the local workspace path or raise ``SandboxError``."""
+        if self.workspace is None:
+            raise SandboxError("Local workspace is not configured.")
+        return self.workspace
+
+    # ------------------------------------------------------------------
+    # Execution
+    # ------------------------------------------------------------------
+
     def run(
         self, command: str, *, timeout: int = 60, stdin: str | None = None
     ) -> SandboxExecutionResult:
-        if self.mode == "k8s":
-            if not self._client:
-                raise RuntimeError("Sandbox client is not initialized.")
+        if self._is_k8s:
+            client = self._require_k8s_client()
             if stdin is not None:
                 raise ValueError("stdin is not supported for k8s sandbox run().")
-            result = self._client.run(command, timeout=timeout)
+            result = client.run(command, timeout=timeout)
             return SandboxExecutionResult(
-                stdout=result.stdout,
-                stderr=result.stderr,
-                exit_code=result.exit_code,
+                stdout=result.stdout, stderr=result.stderr, exit_code=result.exit_code,
             )
 
-        if not self.workspace:
-            raise RuntimeError("Local workspace is not configured.")
+        workspace = self._require_local_workspace()
         process = subprocess.run(
             command,
-            cwd=self.workspace,
+            cwd=workspace,
             shell=True,
             text=True,
             capture_output=True,
@@ -122,20 +153,17 @@ class AgentSandbox:
             input=stdin,
         )
         return SandboxExecutionResult(
-            stdout=process.stdout,
-            stderr=process.stderr,
-            exit_code=process.returncode,
+            stdout=process.stdout, stderr=process.stderr, exit_code=process.returncode,
         )
 
     def run_python_code(self, code: str, *, timeout: int = 60) -> SandboxExecutionResult:
-        if self.mode == "k8s":
+        if self._is_k8s:
             escaped = shlex.quote(code)
             return self.run(f"{self._python_executable} -c {escaped}", timeout=timeout)
 
-        if not self.workspace:
-            raise RuntimeError("Local workspace is not configured.")
+        workspace = self._require_local_workspace()
         with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", suffix=".py", dir=self.workspace, delete=False
+            mode="w", encoding="utf-8", suffix=".py", dir=workspace, delete=False
         ) as temp_file:
             temp_path = Path(temp_file.name)
             temp_file.write(code)
@@ -143,73 +171,55 @@ class AgentSandbox:
         try:
             process = subprocess.run(
                 [self._python_executable, "-I", str(temp_path.name)],
-                cwd=self.workspace,
+                cwd=workspace,
                 text=True,
                 capture_output=True,
                 timeout=timeout,
             )
             return SandboxExecutionResult(
-                stdout=process.stdout,
-                stderr=process.stderr,
-                exit_code=process.returncode,
+                stdout=process.stdout, stderr=process.stderr, exit_code=process.returncode,
             )
         finally:
             temp_path.unlink(missing_ok=True)
 
-    def write_text(self, path: str | Path, content: str, *, encoding: str = "utf-8") -> None:
-        if self.mode == "k8s":
-            if not self._client:
-                raise RuntimeError("Sandbox client is not initialized.")
-            self._client.write(str(path), content)
-            return
+    # ------------------------------------------------------------------
+    # File I/O
+    # ------------------------------------------------------------------
 
+    def write_text(self, path: str | Path, content: str, *, encoding: str = "utf-8") -> None:
+        if self._is_k8s:
+            self._require_k8s_client().write(str(path), content)
+            return
         target = self._resolve_local_path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding=encoding)
 
     def read_text(self, path: str | Path, *, encoding: str = "utf-8") -> str:
-        if self.mode == "k8s":
-            if not self._client:
-                raise RuntimeError("Sandbox client is not initialized.")
-            return self._client.read(str(path)).decode(encoding)
-
-        target = self._resolve_local_path(path)
-        return target.read_text(encoding=encoding)
+        if self._is_k8s:
+            return self._require_k8s_client().read(str(path)).decode(encoding)
+        return self._resolve_local_path(path).read_text(encoding=encoding)
 
     def write_bytes(self, path: str | Path, content: bytes) -> None:
-        if self.mode == "k8s":
-            if not self._client:
-                raise RuntimeError("Sandbox client is not initialized.")
-            self._client.write(str(path), content)
+        if self._is_k8s:
+            self._require_k8s_client().write(str(path), content)
             return
-
         target = self._resolve_local_path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
 
     def read_bytes(self, path: str | Path) -> bytes:
-        if self.mode == "k8s":
-            if not self._client:
-                raise RuntimeError("Sandbox client is not initialized.")
-            return self._client.read(str(path))
-
-        target = self._resolve_local_path(path)
-        return target.read_bytes()
+        if self._is_k8s:
+            return self._require_k8s_client().read(str(path))
+        return self._resolve_local_path(path).read_bytes()
 
     def exists(self, path: str | Path) -> bool:
-        if self.mode == "k8s":
-            if not self._client:
-                raise RuntimeError("Sandbox client is not initialized.")
-            return self._client.exists(str(path))
-
-        target = self._resolve_local_path(path)
-        return target.exists()
+        if self._is_k8s:
+            return self._require_k8s_client().exists(str(path))
+        return self._resolve_local_path(path).exists()
 
     def list_files(self, path: str | Path = ".") -> list[SandboxFileEntry]:
-        if self.mode == "k8s":
-            if not self._client:
-                raise RuntimeError("Sandbox client is not initialized.")
-            files = self._client.list(str(path))
+        if self._is_k8s:
+            files = self._require_k8s_client().list(str(path))
             return [
                 SandboxFileEntry(name=file.name, kind=file.type, size=file.size)
                 for file in files
@@ -222,11 +232,9 @@ class AgentSandbox:
         entries: list[SandboxFileEntry] = []
         for child in sorted(base.rglob("*")):
             if child.is_dir():
-                kind = "dir"
-                size = None
+                kind, size = "dir", None
             else:
-                kind = "file"
-                size = child.stat().st_size
+                kind, size = "file", child.stat().st_size
             entries.append(
                 SandboxFileEntry(
                     name=str(child.relative_to(base if base.is_dir() else self.workspace)),
@@ -235,6 +243,10 @@ class AgentSandbox:
                 )
             )
         return entries
+
+    # ------------------------------------------------------------------
+    # Agent attachment
+    # ------------------------------------------------------------------
 
     def attach_agent(self, agent: Agent, *, mutate: bool = False) -> Agent:
         sandbox_tools = self._build_default_tools()
@@ -256,17 +268,24 @@ class AgentSandbox:
             name=agent.name,
             description=agent.description,
             instruction=agent.instruction,
+            backend=agent.backend,
+            base_url=agent.base_url,
+            api_key=agent.api_key,
+            enable_thinking=agent.enable_thinking,
+            temperature=agent.temperature,
             tools=combined_tools,
             composer=agent.composer,
         )
 
-    def _resolve_local_path(self, path: str | Path) -> Path:
-        if not self.workspace:
-            raise RuntimeError("Local workspace is not configured.")
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
 
-        candidate = (self.workspace / Path(path)).resolve()
-        if not str(candidate).startswith(str(self.workspace)):
-            raise ValueError("Path escapes sandbox workspace.")
+    def _resolve_local_path(self, path: str | Path) -> Path:
+        workspace = self._require_local_workspace()
+        candidate = (workspace / Path(path)).resolve()
+        if not str(candidate).startswith(str(workspace)):
+            raise SandboxError("Path escapes sandbox workspace.")
         return candidate
 
     def _build_default_tools(self) -> list[Callable[..., Any]]:

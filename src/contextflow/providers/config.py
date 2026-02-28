@@ -6,6 +6,33 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SUPPORTED_BACKENDS = {"openai", "litellm"}
 
+_ENV_KEY_CHAIN = ("QWEN_API_KEY", "OPENAI_API_KEY", "DASHSCOPE_API_KEY")
+_ENV_URL_CHAIN = ("QWEN_BASE_URL", "OPENAI_BASE_URL")
+_DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+_DEFAULT_MODEL = "qwen-flash"
+
+
+def resolve_api_key(explicit: str | None = None) -> str:
+    """Resolve an API key from an explicit value or well-known env vars."""
+    if explicit:
+        return explicit
+    for var in _ENV_KEY_CHAIN:
+        val = os.getenv(var)
+        if val:
+            return val
+    return "dummy"
+
+
+def resolve_base_url(explicit: str | None = None) -> str:
+    """Resolve a base URL from an explicit value or well-known env vars."""
+    if explicit:
+        return explicit
+    for var in _ENV_URL_CHAIN:
+        val = os.getenv(var)
+        if val:
+            return val
+    return _DEFAULT_BASE_URL
+
 
 def split_model_identifier(model: str) -> tuple[str | None, str]:
     if "/" not in model:
@@ -47,23 +74,11 @@ class ProviderConfig(BaseModel):
         enable_thinking: bool = True,
         temperature: float = 1.0,
     ) -> "ProviderConfig":
-        resolved_key = (
-            api_key
-            or os.getenv("QWEN_API_KEY")
-            or os.getenv("OPENAI_API_KEY")
-            or os.getenv("DASHSCOPE_API_KEY")
-            or "dummy"
-        )
         return cls(
             backend=backend,
-            model=model or os.getenv("QWEN_MODEL", "qwen-flash"),
-            base_url=(
-                base_url
-                or os.getenv("QWEN_BASE_URL")
-                or os.getenv("OPENAI_BASE_URL")
-                or "https://dashscope.aliyuncs.com/compatible-mode/v1"
-            ),
-            api_key=resolved_key,
+            model=model or os.getenv("QWEN_MODEL", _DEFAULT_MODEL),
+            base_url=resolve_base_url(base_url),
+            api_key=resolve_api_key(api_key),
             enable_thinking=enable_thinking,
             temperature=temperature,
         )

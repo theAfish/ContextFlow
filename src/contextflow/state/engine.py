@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from contextflow.core.models import ContextNode, MessageRole
 from contextflow.state.session import SessionManager
 
-TurnHandler = Callable[[list[dict]], Awaitable[str]]
+TurnHandler = Callable[[list[dict[str, Any]]], Awaitable[str]]
 
 
 @dataclass(slots=True)
 class TurnResult:
     session_id: str
     output_text: str
-    messages: list[dict]
+    messages: list[dict[str, Any]]
 
 
 class StateEngine:

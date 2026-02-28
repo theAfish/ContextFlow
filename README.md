@@ -157,10 +157,121 @@ python examples/sandbox_chat_codegen.py
 
 Ask in natural language, e.g. `create app.py that prints hello`, and the agent will use sandbox tools to write/update files in `examples/_sandbox_smoke`.
 
+## Agent State Machine
+
+Each `Agent` can optionally carry an `AgentStateMachine` — a lightweight finite-state machine that lets you:
+
+- **Gate execution**: only allow `run_once()` in specific states (e.g. `"running"`)
+- **Control flow**: transition between states with guards that can block invalid moves
+- **React to changes**: register `on_enter` / `on_exit` / `on_change` hooks (sync or async)
+- **Force overrides**: bypass transition rules with `force_transition()` for recovery paths
+- **Inspect history**: every transition is logged with a timestamp
+
+### Quick start
+
+```python
+from contextflow import Agent, AgentStateMachine
+
+# 1. Define the state machine
+sm = AgentStateMachine(
+    initial="idle",
+    transitions={
+        "idle":    ["running"],
+        "running": ["paused", "done", "error"],
+        "paused":  ["running", "done"],
+        "error":   ["idle"],
+    },
+)
+
+# Only allow LLM calls when the agent is in "running" state
+sm.allow_run_when("running")
+
+# 2. Register hooks (decorators, sync or async)
+@sm.on_enter("running")
+def start_running(old, new, ctx):
+    print(f"Agent started! (was {old})")
+
+@sm.on_enter("error")
+def on_error(old, new, ctx):
+    print(f"ERROR from {old}: {ctx.get('reason', '?')}")
+
+# 3. Register guards (return truthy to allow, falsy to block)
+@sm.guard("running", "done")
+def must_have_output(from_st, to_st, ctx):
+    return bool(ctx.get("output"))
+
+# 4. Attach to agent
+agent = Agent(
+    model="openai/qwen-flash",
+    name="my_agent",
+    description="Stateful assistant",
+    instruction="You are helpful.",
+    state_machine=sm,
+)
+```
+
+### Using the state machine at runtime
+
+```python
+# Read current state
+print(agent.state)                        # "idle"
+
+# Transition (validates table + runs guards)
+await agent.transition_to("running")      # "running"
+
+# run_once() is now allowed
+result = await agent.run_once(user_input="Hello")
+
+# Transition with context (guards can inspect it)
+await agent.transition_to("done", context={"output": result.output_text})
+
+# Force-transition (skips table & guards, hooks still fire)
+await agent.force_transition("idle")
+
+# Inspect full history
+for entry in agent.state_machine.history:
+    print(f"  {entry.from_state} → {entry.to_state} at {entry.timestamp}")
+```
+
+### API summary
+
+| Method / Property | Description |
+|---|---|
+| `AgentStateMachine(initial, transitions)` | Create a machine. Pass `transitions=None` for open mode (any transition). |
+| `sm.allow_run_when(*states)` | Restrict `run_once()` to these states only. No args = no restriction. |
+| `sm.current` | Current state string. |
+| `sm.can_transition(target)` | Check if `target` is reachable (ignoring guards). |
+| `sm.can_run()` | Check if `run_once()` is allowed. |
+| `await sm.transition_to(state, context=)` | Transition with validation + guards + hooks. |
+| `await sm.force_transition(state, context=)` | Skip table & guards; hooks still fire. |
+| `sm.history` | List of `StateTransition` records. |
+| `sm.reset(state=)` | Clear history and optionally set a new state. |
+| `@sm.on_enter(state)` | Decorator: hook fires when entering a state. |
+| `@sm.on_exit(state)` | Decorator: hook fires when leaving a state. |
+| `@sm.on_change` | Decorator: hook fires on every transition. |
+| `@sm.guard(from, to)` | Decorator: must return truthy to allow the transition. |
+
+### Exceptions
+
+| Exception | When |
+|---|---|
+| `InvalidTransition` | Transition not in the table. |
+| `TransitionBlockedByGuard` | A guard returned falsy. |
+| `RunBlockedByState` | `run_once()` called in a non-allowed state. |
+
+All inherit from `StateError`.
+
+Runnable examples:
+
+```bash
+python examples/agent_state_machine.py          # basic hooks + guards
+python examples/agent_stateful_assistant.py      # multi-state LLM workflow
+```
+
 ## Package layout
 
 - `contextflow.core` — context data structures, composer, parser, pruning
-- `contextflow.agents` — simple reusable agent definitions
+- `contextflow.agents` — agent definitions + `AgentStateMachine`
 - `contextflow.providers` — provider config + OpenAI-compatible/LiteLLM adapters
 - `contextflow.streaming` — normalized streaming event model
 - `contextflow.state` — session manager and async turn engine
