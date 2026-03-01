@@ -88,8 +88,35 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   gap: 12px;
 }
 
-.msg {
+.chat-bubble-wrapper {
+  display: flex;
+  flex-direction: column;
   max-width: 88%;
+}
+.chat-bubble-wrapper.user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+.chat-bubble-wrapper.assistant {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+.msg-speaker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  margin-bottom: 4px;
+  padding: 0 4px;
+  color: var(--text-dim);
+}
+.msg-speaker-icon { font-size: 13px; }
+.msg-speaker-name {
+  font-family: var(--mono);
+  color: var(--purple);
+  font-weight: 500;
+}
+.msg {
   padding: 10px 14px;
   border-radius: var(--radius);
   font-size: 14px;
@@ -98,16 +125,18 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   word-break: break-word;
 }
 .msg.user {
-  align-self: flex-end;
   background: var(--accent-dim);
   color: #fff;
   border-bottom-right-radius: 2px;
 }
 .msg.assistant {
-  align-self: flex-start;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-bottom-left-radius: 2px;
+}
+.msg.agent-trace {
+  background: rgba(188, 140, 255, .08);
+  border: 1px solid rgba(188, 140, 255, .35);
 }
 .msg .msg-meta {
   font-size: 10px;
@@ -118,6 +147,14 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   background: rgba(248, 81, 73, .15);
   border: 1px solid var(--red);
   color: var(--red);
+}
+.msg.clickable {
+  cursor: pointer;
+  transition: all .15s;
+}
+.msg.clickable:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,.15);
 }
 
 .chat-input-area {
@@ -305,6 +342,16 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .session-msg .role.user { color: var(--accent); }
 .session-msg .role.assistant { color: var(--green); }
 .session-msg .role.system { color: var(--yellow); }
+.session-msg .agent-tag {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--purple);
+  text-transform: none;
+}
 .session-msg .content { white-space: pre-wrap; line-height: 1.5; }
 .session-msg .ts { font-size: 10px; color: var(--text-dim); margin-top: 4px; }
 
@@ -433,6 +480,134 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 }
 .ws-dot.connected { background: var(--green); }
 .ws-dot.disconnected { background: var(--red); }
+
+/* ── Clickable chat bubbles ────────────────────────────────────────── */
+.msg.clickable {
+  cursor: pointer;
+  position: relative;
+  transition: box-shadow .15s, transform .1s;
+}
+.msg.clickable:hover {
+  box-shadow: 0 0 0 1px var(--accent);
+  transform: translateY(-1px);
+}
+.msg.clickable::after {
+  content: '🔍';
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 10px;
+  opacity: 0;
+  transition: opacity .15s;
+}
+.msg.clickable:hover::after {
+  opacity: .7;
+}
+
+/* ── Context Modal / Overlay ───────────────────────────────────────── */
+.context-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0,0,0,.65);
+  backdrop-filter: blur(4px);
+  align-items: center;
+  justify-content: center;
+}
+.context-overlay.open {
+  display: flex;
+}
+.context-modal {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 720px;
+  max-width: 92vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 48px rgba(0,0,0,.5);
+}
+.context-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.context-modal-header h2 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.context-modal-header .close-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 18px;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s;
+}
+.context-modal-header .close-btn:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+.context-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+.context-msg-block {
+  margin-bottom: 14px;
+}
+.context-msg-role {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  display: inline-block;
+}
+.context-msg-role.system  { background: rgba(210,153,34,.15); color: var(--yellow); }
+.context-msg-role.user    { background: rgba(88,166,255,.12); color: var(--accent); }
+.context-msg-role.assistant { background: rgba(63,185,80,.12); color: var(--green); }
+.context-msg-content {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-family: var(--mono);
+  white-space: pre-wrap;
+  line-height: 1.55;
+  max-height: 300px;
+  overflow-y: auto;
+  color: var(--text);
+}
+.context-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.context-meta span { display: inline-flex; align-items: center; gap: 4px; }
+.context-no-data {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-dim);
+  font-size: 14px;
+}
 </style>
 </head>
 <body>
@@ -445,6 +620,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
       <span class="badge" id="model-badge">—</span>
       <div class="agent-info">
         <div id="agent-name">—</div>
+        <div id="tracked-agents">agents: —</div>
         <div class="ws-status">
           <div class="ws-dot disconnected" id="ws-dot"></div>
           <span id="ws-label">disconnected</span>
@@ -529,6 +705,18 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   </div>
 </div>
 
+<!-- ─── Context Modal ───────────────────────────────────────────── -->
+<div class="context-overlay" id="context-overlay" onclick="if(event.target===this)closeContextModal()">
+  <div class="context-modal">
+    <div class="context-modal-header">
+      <h2 id="context-modal-title">LLM Context</h2>
+      <button class="close-btn" onclick="closeContextModal()">&times;</button>
+    </div>
+    <div class="context-modal-body" id="context-modal-body">
+    </div>
+  </div>
+</div>
+
 <script>
 // ── State ────────────────────────────────────────────────────────────
 let wsConnected = false;
@@ -572,16 +760,64 @@ async function apiFetch(path, opts = {}) {
 }
 
 // ── Chat ─────────────────────────────────────────────────────────────
-function appendChatMsg(role, text) {
+// Map to store call_ids for each message index
+let chatMsgCallIds = [];
+
+function agentIcon(agentName, role, kind) {
+  if (role === 'user') return '🧑';
+  if (kind === 'agent_trace') return '🧠';
+  const lowered = (agentName || '').toLowerCase();
+  if (lowered.includes('weather')) return '🌦️';
+  if (lowered.includes('knowledge')) return '📚';
+  if (lowered.includes('orchestrator') || lowered.includes('root')) return '🎛️';
+  return '🤖';
+}
+
+function appendChatMsg(role, text, callIds, opts = {}) {
   const container = $('#chat-messages');
-  // Remove empty state
   const empty = container.querySelector('.empty-state');
   if (empty) empty.remove();
 
-  const div = document.createElement('div');
-  div.className = `msg ${role}`;
-  div.textContent = text;
-  container.appendChild(div);
+  const idx = chatMsgCallIds.length;
+  chatMsgCallIds.push(callIds || []);
+
+  const icon = agentIcon(opts.agentName, role, opts.kind);
+  const displayAgent = opts.agentName || (role === 'user' ? 'human' : 'assistant');
+  const kind = opts.kind || 'chat';
+
+  // Create wrapper
+  const wrapper = document.createElement('div');
+  wrapper.className = `chat-bubble-wrapper ${role}`;
+
+  // Create speaker label (outside the bubble)
+  const speaker = document.createElement('div');
+  speaker.className = 'msg-speaker';
+  speaker.innerHTML = `
+    <span class="msg-speaker-icon">${icon}</span>
+    <span class="msg-speaker-name">${escapeHtml(displayAgent)}</span>
+    <span>· ${escapeHtml(kind)}</span>
+  `;
+
+  // Create message bubble
+  const msg = document.createElement('div');
+  msg.className = `msg ${role}`;
+  if (opts.kind === 'agent_trace') {
+    msg.classList.add('agent-trace');
+  }
+
+  if (callIds && callIds.length > 0) {
+    msg.classList.add('clickable');
+    msg.title = 'Click to view full LLM context';
+    msg.setAttribute('data-msg-idx', idx);
+    msg.addEventListener('click', () => showContextModal(idx));
+  }
+
+  msg.textContent = text;
+
+  // Assemble: speaker on top, then message
+  wrapper.appendChild(speaker);
+  wrapper.appendChild(msg);
+  container.appendChild(wrapper);
   container.scrollTop = container.scrollHeight;
 }
 
@@ -594,7 +830,7 @@ async function sendMessage() {
   chatInput.value = '';
   chatInput.style.height = 'auto';
 
-  appendChatMsg('user', text);
+  appendChatMsg('user', text, [], { agentName: 'human', kind: 'chat' });
 
   try {
     const data = await apiFetch('/api/chat', {
@@ -603,13 +839,41 @@ async function sendMessage() {
     });
 
     if (data.ok) {
-      appendChatMsg('assistant', data.response);
+      // The last LLM call(s) from the response carry the context
+      // We'll tag the assistant bubble with call_ids after refresh
+      appendChatMsg('assistant', data.response, data.call_ids || [], {
+        agentName: ($('#agent-name').textContent || '').trim() || 'assistant',
+        kind: 'chat',
+      });
+      // Also retroactively tag the user bubble if call_ids available
+      if (data.call_ids && data.call_ids.length > 0) {
+        const userIdx = chatMsgCallIds.length - 2; // user msg was added just before
+        if (userIdx >= 0) {
+          chatMsgCallIds[userIdx] = data.call_ids;
+          // Make the user bubble clickable retroactively
+          const userBubble = $(`[data-msg-idx="${userIdx}"]`);
+          if (!userBubble) {
+            // Find the last user msg element and tag it
+            const allWrappers = $$('#chat-messages .chat-bubble-wrapper.user');
+            if (allWrappers.length > 0) {
+              const lastWrapper = allWrappers[allWrappers.length - 1];
+              const lastUser = lastWrapper.querySelector('.msg.user');
+              if (lastUser && !lastUser.classList.contains('clickable')) {
+                lastUser.classList.add('clickable');
+                lastUser.title = 'Click to view full LLM context';
+                lastUser.setAttribute('data-msg-idx', userIdx);
+                lastUser.addEventListener('click', () => showContextModal(userIdx));
+              }
+            }
+          }
+        }
+      }
       if (data.status) updateStatus(data.status);
     } else {
-      appendChatMsg('error', `Error: ${data.error}`);
+      appendChatMsg('error', `Error: ${data.error}`, [], { agentName: 'system', kind: 'error' });
     }
   } catch (err) {
-    appendChatMsg('error', `Network error: ${err.message}`);
+    appendChatMsg('error', `Network error: ${err.message}`, [], { agentName: 'system', kind: 'error' });
   }
 
   sending = false;
@@ -624,6 +888,10 @@ async function sendMessage() {
 function updateStatus(s) {
   $('#model-badge').textContent = s.model || '—';
   $('#agent-name').textContent = s.agent_name || '—';
+  const tracked = s.tracked_agents && s.tracked_agents.length
+    ? s.tracked_agents.join(', ')
+    : '—';
+  $('#tracked-agents').textContent = `agents: ${tracked}`;
   $('#current-state').textContent = s.current_state || '(none)';
   $('#stat-msgs').textContent = s.total_messages;
   $('#stat-calls').textContent = s.total_llm_calls;
@@ -719,10 +987,30 @@ async function refreshState() {
 }
 
 // ── Session / Conversation ───────────────────────────────────────────
+function renderChatTimeline(msgs) {
+  const chat = $('#chat-messages');
+  chatMsgCallIds = [];
+
+  if (!msgs || msgs.length === 0) {
+    chat.innerHTML = '<div class="empty-state"><div class="icon">💬</div>Send a message to start chatting with the agent.</div>';
+    return;
+  }
+
+  chat.innerHTML = '';
+  msgs.forEach(m => {
+    if (m.role !== 'user' && m.role !== 'assistant') return;
+    appendChatMsg(m.role, m.content || '', m.call_ids || [], {
+      agentName: m.agent_name || (m.role === 'user' ? 'human' : 'assistant'),
+      kind: m.kind || 'chat',
+    });
+  });
+}
+
 async function refreshSession() {
   try {
     const msgs = await apiFetch('/api/conversation');
     const container = $('#session-messages');
+    renderChatTimeline(msgs);
 
     if (!msgs || msgs.length === 0) {
       container.innerHTML = '<div class="empty-state"><div class="icon">📋</div>No messages yet.</div>';
@@ -731,8 +1019,11 @@ async function refreshSession() {
 
     container.innerHTML = msgs.map(m => {
       const role = m.role || 'unknown';
+      const agentName = m.agent_name || (role === 'user' ? 'human' : 'assistant');
+      const icon = agentIcon(agentName, role, m.kind || 'chat');
+      const kind = m.kind || 'chat';
       return `<div class="session-msg">
-        <div class="role ${role}">${role}</div>
+        <div class="role ${role}">${icon} ${role}<span class="agent-tag">${escapeHtml(agentName)} · ${escapeHtml(kind)}</span></div>
         <div class="content">${escapeHtml(m.content)}</div>
         <div class="ts">${m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : ''}</div>
       </div>`;
@@ -758,10 +1049,12 @@ async function refreshCalls() {
 
       const fullReq = JSON.stringify(c.request_messages, null, 2);
 
+      const callAgent = c.agent_name || 'assistant';
+      const callIcon = agentIcon(callAgent, 'assistant', 'agent_trace');
       return `<div class="call-card" id="call-${c.call_id}">
         <div class="call-header" onclick="toggleCall('${c.call_id}')">
           <span class="call-id">#${c.call_id}</span>
-          <span class="call-state">${c.agent_state || '—'}</span>
+          <span class="call-state">${callIcon} ${escapeHtml(callAgent)}${c.agent_state ? ` · ${escapeHtml(c.agent_state)}` : ''}</span>
           <span class="call-duration">${c.duration_ms}ms</span>
           <span class="call-tokens">~${c.token_estimate_in} in / ~${c.token_estimate_out} out tokens</span>
           <span class="call-chevron">▶</span>
@@ -838,7 +1131,69 @@ function connectWS() {
     } catch {}
   };
 }
+// ── Context Modal ────────────────────────────────────────────────
+async function showContextModal(msgIdx) {
+  const callIds = chatMsgCallIds[msgIdx] || [];
+  const overlay = $('#context-overlay');
+  const body = $('#context-modal-body');
+  const title = $('#context-modal-title');
 
+  if (callIds.length === 0) {
+    title.textContent = 'LLM Context';
+    body.innerHTML = '<div class="context-no-data">No LLM context available for this message.</div>';
+    overlay.classList.add('open');
+    return;
+  }
+
+  title.textContent = `LLM Context (${callIds.length} call${callIds.length > 1 ? 's' : ''})`;
+  body.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-dim)">Loading…</div>';
+  overlay.classList.add('open');
+
+  try {
+    let html = '';
+    for (const callId of callIds) {
+      const call = await apiFetch(`/api/calls/${callId}`);
+      if (call.error) continue;
+
+      html += `<div class="context-meta">`;
+      html += `<span><strong>Call:</strong> #${call.call_id}</span>`;
+      html += `<span><strong>Agent:</strong> ${escapeHtml(call.agent_name || 'assistant')}</span>`;
+      html += `<span><strong>State:</strong> ${call.agent_state || '—'}</span>`;
+      html += `<span><strong>Duration:</strong> ${call.duration_ms}ms</span>`;
+      html += `<span><strong>Tokens:</strong> ~${call.token_estimate_in} in / ~${call.token_estimate_out} out</span>`;
+      html += `</div>`;
+
+      (call.request_messages || []).forEach(m => {
+        const role = m.role || 'unknown';
+        html += `<div class="context-msg-block">`;
+        html += `<div class="context-msg-role ${role}">${role}</div>`;
+        html += `<div class="context-msg-content">${escapeHtml(m.content || '')}</div>`;
+        html += `</div>`;
+      });
+
+      html += `<div class="context-msg-block">`;
+      html += `<div class="context-msg-role assistant">response</div>`;
+      html += `<div class="context-msg-content">${escapeHtml(call.response_text || '')}</div>`;
+      html += `</div>`;
+
+      if (callIds.length > 1) {
+        html += '<hr style="border:none;border-top:1px solid var(--border);margin:16px 0">';
+      }
+    }
+    body.innerHTML = html;
+  } catch (err) {
+    body.innerHTML = `<div class="context-no-data">Failed to load context: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function closeContextModal() {
+  $('#context-overlay').classList.remove('open');
+}
+
+// Close modal on Escape
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeContextModal();
+});
 // ── Init ─────────────────────────────────────────────────────────────
 refreshAll();
 connectWS();

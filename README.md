@@ -97,6 +97,34 @@ Runnable example:
 python examples/simple_agent_define.py
 ```
 
+## Web Debug CLI (`contextflow web`)
+
+Use the debug web UI against a script-defined root agent:
+
+```bash
+contextflow web examples/agents/simple_agent_define.py
+```
+
+For multi-agent scripts, define your main coordinator as `root_agent` (recommended),
+or pass an explicit variable path:
+
+```bash
+contextflow web examples/agents/multi_agent_async.py root_agent
+contextflow web examples/agents/multi_agent_async.py --agent orchestrator
+```
+
+Selection behavior:
+
+- If provided, `<agent_path>` / `--agent` is used directly.
+- Otherwise, auto-discovery prefers `root_agent`, then `agent`, then `orchestrator`.
+- If none of those names exists, the first declared module-level `Agent` is used.
+
+Multi-agent debug tip:
+
+- If your script has custom orchestration logic, expose `async def debug_chat(message: str) -> str`.
+- `contextflow web` will call this handler so the web chat follows the same first-hop flow as your script.
+- The debug UI tags each captured LLM call with `agent_name` and renders per-agent chat/context traces.
+
 ## Sandbox (Isolated Workspace + Agent Attachment)
 
 ContextFlow includes `AgentSandbox` for isolated file/code operations and easy agent binding.

@@ -1,23 +1,19 @@
-"""Debug session – instruments an Agent to capture every LLM call and state change."""
+"""Debug session – instruments one or many agents for the debug frontend."""
 
 from __future__ import annotations
 
 import asyncio
+import inspect
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
 from contextflow.agents.agent import Agent, AgentRunResult
 from contextflow.core.models import ContextNode, MessageRole
 from contextflow.providers.client import AsyncLLMClient
-from contextflow.streaming import StreamEvent
 
-
-# ---------------------------------------------------------------------------
-# Records
-# ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
 class LLMCallRecord:
@@ -25,6 +21,7 @@ class LLMCallRecord:
 
     call_id: str
     timestamp: str
+    agent_name: str
     agent_state: str | None
     request_messages: list[dict[str, Any]]
     response_text: str
@@ -36,6 +33,7 @@ class LLMCallRecord:
         return {
             "call_id": self.call_id,
             "timestamp": self.timestamp,
+            "agent_name": self.agent_name,
             "agent_state": self.agent_state,
             "request_messages": self.request_messages,
             "response_text": self.response_text,
@@ -49,32 +47,36 @@ class LLMCallRecord:
 class StateChangeRecord:
     """One captured state transition."""
 
+    agent_name: str
     from_state: str
     to_state: str
     timestamp: str
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "agent_name": self.agent_name,
             "from_state": self.from_state,
             "to_state": self.to_state,
             "timestamp": self.timestamp,
         }
 
 
-# ---------------------------------------------------------------------------
-# Instrumented LLM client wrapper
-# ---------------------------------------------------------------------------
-
 class _InstrumentedClient:
     """Wraps a real LLM client, recording every call."""
 
-    def __init__(self, real_client: AsyncLLMClient, session: DebugSession) -> None:
+    def __init__(
+        self,
+        real_client: AsyncLLMClient,
+        session: "DebugSession",
+        *,
+        agent_name: str,
+    ) -> None:
         self._real = real_client
         self._session = session
+        self._agent_name = agent_name
 
     async def complete(self, messages: list[dict[str, Any]]) -> str:
         call_id = str(uuid4())[:8]
-        state = self._session.agent.state
         ts = datetime.now(timezone.utc).isoformat()
         token_est_in = sum(len(m.get("content", "")) // 4 for m in messages)
 
@@ -86,7 +88,8 @@ class _InstrumentedClient:
         record = LLMCallRecord(
             call_id=call_id,
             timestamp=ts,
-            agent_state=state,
+            agent_name=self._agent_name,
+            agent_state=self._session.agent_state(self._agent_name),
             request_messages=messages,
             response_text=response,
             duration_ms=duration,
@@ -94,8 +97,14 @@ class _InstrumentedClient:
             token_estimate_out=token_est_out,
         )
         self._session._llm_calls.append(record)
+        self._session._append_conversation_message(
+            role="assistant",
+            content=response,
+            kind="agent_trace",
+            agent_name=self._agent_name,
+            call_ids=[call_id],
+        )
 
-        # Notify listeners
         for cb in self._session._on_llm_call:
             cb(record)
 
@@ -104,7 +113,6 @@ class _InstrumentedClient:
     async def stream(self, messages: list[dict[str, Any]]):
         """Stream-through, recording the full response after completion."""
         call_id = str(uuid4())[:8]
-        state = self._session.agent.state
         ts = datetime.now(timezone.utc).isoformat()
         token_est_in = sum(len(m.get("content", "")) // 4 for m in messages)
 
@@ -114,7 +122,6 @@ class _InstrumentedClient:
         async for event in self._real.stream(messages):
             if event.kind == "content" and event.text:
                 parts.append(event.text)
-            # Forward events through to the caller
             yield event
 
         duration = (time.perf_counter() - t0) * 1000
@@ -124,7 +131,8 @@ class _InstrumentedClient:
         record = LLMCallRecord(
             call_id=call_id,
             timestamp=ts,
-            agent_state=state,
+            agent_name=self._agent_name,
+            agent_state=self._session.agent_state(self._agent_name),
             request_messages=messages,
             response_text=full_response,
             duration_ms=duration,
@@ -132,116 +140,157 @@ class _InstrumentedClient:
             token_estimate_out=token_est_out,
         )
         self._session._llm_calls.append(record)
+        self._session._append_conversation_message(
+            role="assistant",
+            content=full_response,
+            kind="agent_trace",
+            agent_name=self._agent_name,
+            call_ids=[call_id],
+        )
+
         for cb in self._session._on_llm_call:
             cb(record)
 
 
-# ---------------------------------------------------------------------------
-# DebugSession
-# ---------------------------------------------------------------------------
-
 class DebugSession:
-    """Wraps an Agent for debugging.
+    """Wrap one root agent (and optional peer agents) for web debugging."""
 
-    * Instruments LLM calls (captures request/response/timing).
-    * Listens to state-machine transitions.
-    * Maintains conversation history (user + assistant messages).
-    * Provides serialisable snapshots for the debug frontend.
-
-    Usage::
-
-        from contextflow.debug import DebugSession, launch_debug
-        session = DebugSession(agent)
-        launch_debug(session, port=8790)
-    """
-
-    def __init__(self, agent: Agent) -> None:
+    def __init__(
+        self,
+        agent: Agent,
+        *,
+        agents: list[Agent] | None = None,
+        chat_handler: Callable[[str], str | Awaitable[str]] | None = None,
+    ) -> None:
         self.agent = agent
+        self._chat_handler = chat_handler
+        self._chat_lock = asyncio.Lock()
         self._conversation: list[dict[str, Any]] = []
         self._llm_calls: list[LLMCallRecord] = []
         self._state_changes: list[StateChangeRecord] = []
+        self._last_turn_call_ids: list[str] = []
 
-        # Callbacks that the server can hook into for real-time push
+        tracked_agents: list[Agent] = [agent]
+        for candidate in agents or []:
+            if all(existing is not candidate for existing in tracked_agents):
+                tracked_agents.append(candidate)
+        self._agents: dict[str, Agent] = {tracked.name: tracked for tracked in tracked_agents}
+
         self._on_llm_call: list[Callable[[LLMCallRecord], Any]] = []
         self._on_state_change: list[Callable[[StateChangeRecord], Any]] = []
         self._on_conversation_update: list[Callable[[dict[str, Any]], Any]] = []
 
-        # Instrument the agent's LLM client
-        self._instrument_agent()
+        self._instrument_agents()
+        self._register_state_hooks()
 
-        # Hook into state machine if present
-        if agent.state_machine is not None:
-            agent.state_machine._on_change.append(self._capture_state_change)
+    def _instrument_agents(self) -> None:
+        for name, tracked_agent in self._agents.items():
+            real_client = tracked_agent.resolve_llm_client()
+            instrumented = _InstrumentedClient(real_client, self, agent_name=name)
+            object.__setattr__(tracked_agent, "llm_client", instrumented)
 
-    # ------------------------------------------------------------------
-    # Instrumentation
-    # ------------------------------------------------------------------
+    def _register_state_hooks(self) -> None:
+        for name, tracked_agent in self._agents.items():
+            if tracked_agent.state_machine is None:
+                continue
 
-    def _instrument_agent(self) -> None:
-        """Replace the agent's LLM client with an instrumented wrapper."""
-        real_client = self.agent.resolve_llm_client()
-        instrumented = _InstrumentedClient(real_client, self)
-        object.__setattr__(self.agent, "llm_client", instrumented)
+            def _capture(old_state: str, new_state: str, ctx: dict, *, agent_name: str = name) -> None:
+                record = StateChangeRecord(
+                    agent_name=agent_name,
+                    from_state=old_state,
+                    to_state=new_state,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                )
+                self._state_changes.append(record)
+                for cb in self._on_state_change:
+                    cb(record)
 
-    def _capture_state_change(self, old_state: str, new_state: str, ctx: dict) -> None:
-        record = StateChangeRecord(
-            from_state=old_state,
-            to_state=new_state,
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        )
-        self._state_changes.append(record)
-        for cb in self._on_state_change:
-            cb(record)
+            tracked_agent.state_machine._on_change.append(_capture)
 
-    # ------------------------------------------------------------------
-    # Chat
-    # ------------------------------------------------------------------
+    def agent_state(self, agent_name: str) -> str | None:
+        tracked_agent = self._agents.get(agent_name)
+        if tracked_agent is None:
+            return None
+        return tracked_agent.state
+
+    def _append_conversation_message(
+        self,
+        *,
+        role: str,
+        content: str,
+        kind: str,
+        agent_name: str | None = None,
+        call_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        msg = {
+            "role": role,
+            "content": content,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "kind": kind,
+            "agent_name": agent_name,
+            "call_ids": list(call_ids or []),
+        }
+        self._conversation.append(msg)
+        for cb in self._on_conversation_update:
+            cb(msg)
+        return msg
 
     async def chat(self, user_input: str) -> str:
-        """Send a user message, get the agent response, record everything."""
-        self._conversation.append({
-            "role": "user",
-            "content": user_input,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
-        for cb in self._on_conversation_update:
-            cb(self._conversation[-1])
+        """Send a user message through the configured debug conversation path."""
+        user_msg = self._append_conversation_message(
+            role="user",
+            content=user_input,
+            kind="chat",
+            agent_name="human",
+        )
 
-        # Build history from conversation
         history = [
             ContextNode(
                 role=MessageRole.USER if m["role"] == "user" else MessageRole.ASSISTANT,
                 content=m["content"],
             )
-            for m in self._conversation[:-1]  # exclude the one we just added – run_once adds it
+            for m in self._conversation
+            if m.get("kind") == "chat"
         ]
+        if history:
+            history = history[:-1]
 
-        result: AgentRunResult = await self.agent.run_once(
-            user_input=user_input,
-            history=history if history else None,
-        )
+        async with self._chat_lock:
+            calls_before = len(self._llm_calls)
 
-        self._conversation.append({
-            "role": "assistant",
-            "content": result.output_text,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
-        for cb in self._on_conversation_update:
-            cb(self._conversation[-1])
+            if self._chat_handler is not None:
+                maybe_result = self._chat_handler(user_input)
+                response_text = (
+                    await maybe_result
+                    if inspect.isawaitable(maybe_result)
+                    else str(maybe_result)
+                )
+            else:
+                result: AgentRunResult = await self.agent.run_once(
+                    user_input=user_input,
+                    history=history if history else None,
+                )
+                response_text = result.output_text
 
-        return result.output_text
+            turn_call_ids = [record.call_id for record in self._llm_calls[calls_before:]]
+            self._last_turn_call_ids = list(turn_call_ids)
 
-    # ------------------------------------------------------------------
-    # State helpers
-    # ------------------------------------------------------------------
+            user_msg["call_ids"] = list(turn_call_ids)
+            for cb in self._on_conversation_update:
+                cb(user_msg)
+
+            self._append_conversation_message(
+                role="assistant",
+                content=response_text,
+                kind="chat",
+                agent_name=self.agent.name,
+                call_ids=turn_call_ids,
+            )
+
+        return response_text
 
     async def transition_to(self, new_state: str) -> str:
-        """Proxy to agent.transition_to for the frontend."""
         return await self.agent.transition_to(new_state)
-
-    # ------------------------------------------------------------------
-    # Snapshot API
-    # ------------------------------------------------------------------
 
     def snapshot_status(self) -> dict[str, Any]:
         sm = self.agent.state_machine
@@ -249,6 +298,7 @@ class DebugSession:
             "agent_name": self.agent.name,
             "agent_description": self.agent.description,
             "model": f"{self.agent.backend}/{self.agent.model}",
+            "tracked_agents": sorted(self._agents.keys()),
             "current_state": self.agent.state,
             "available_states": sorted(sm.all_states) if sm else [],
             "allowed_transitions": (
@@ -263,16 +313,16 @@ class DebugSession:
         return list(self._conversation)
 
     def snapshot_llm_calls(self) -> list[dict[str, Any]]:
-        return [c.to_dict() for c in self._llm_calls]
+        return [record.to_dict() for record in self._llm_calls]
 
     def snapshot_llm_call(self, call_id: str) -> dict[str, Any] | None:
-        for c in self._llm_calls:
-            if c.call_id == call_id:
-                return c.to_dict()
+        for record in self._llm_calls:
+            if record.call_id == call_id:
+                return record.to_dict()
         return None
 
     def snapshot_state_changes(self) -> list[dict[str, Any]]:
-        return [s.to_dict() for s in self._state_changes]
+        return [record.to_dict() for record in self._state_changes]
 
     def snapshot_state_machine(self) -> dict[str, Any] | None:
         sm = self.agent.state_machine
@@ -285,10 +335,13 @@ class DebugSession:
             "run_states": sorted(sm._run_states) if sm._run_states else None,
             "history": [
                 {
-                    "from_state": h.from_state,
-                    "to_state": h.to_state,
-                    "timestamp": h.timestamp.isoformat(),
+                    "from_state": entry.from_state,
+                    "to_state": entry.to_state,
+                    "timestamp": entry.timestamp.isoformat(),
                 }
-                for h in sm.history
+                for entry in sm.history
             ],
         }
+
+    def last_turn_call_ids(self) -> list[str]:
+        return list(self._last_turn_call_ids)

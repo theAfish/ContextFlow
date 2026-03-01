@@ -1,4 +1,4 @@
-from contextflow.agents.agent import Agent, AgentRunResult, ToolSpec
+from contextflow.agents.agent import Agent, AgentRunResult, ChatSession, ToolSpec
 from contextflow.agents.state_machine import (
     AgentStateMachine,
     InvalidTransition,
@@ -7,10 +7,16 @@ from contextflow.agents.state_machine import (
     StateTransition,
     TransitionBlockedByGuard,
 )
+from contextflow.agents.session import (
+    MultiAgentSession,
+    SessionEvent,
+    TransferRecord,
+)
 
 __all__ = [
     "Agent",
     "AgentRunResult",
+    "ChatSession",
     "ToolSpec",
     "AgentStateMachine",
     "StateError",
@@ -18,4 +24,7 @@ __all__ = [
     "TransitionBlockedByGuard",
     "RunBlockedByState",
     "StateTransition",
+    "MultiAgentSession",
+    "SessionEvent",
+    "TransferRecord",
 ]

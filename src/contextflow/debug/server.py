@@ -115,6 +115,7 @@ def create_debug_app(session: DebugSession) -> FastAPI:
             return JSONResponse({
                 "ok": True,
                 "response": response_text,
+                "call_ids": session.last_turn_call_ids(),
                 "status": session.snapshot_status(),
             })
         except Exception as exc:

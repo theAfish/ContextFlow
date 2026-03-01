@@ -10,6 +10,9 @@ In each state the agent uses a **different system instruction** when calling
 the LLM, so the model's behaviour changes depending on where we are in the
 workflow.  Hooks and guards enforce the rules automatically.
 
+Now uses ``instruction=dict[str, str]`` so the framework automatically
+selects the right instruction per state — no manual swapping needed.
+
 Run:
     python examples/agent_stateful_assistant.py
 """
@@ -25,27 +28,6 @@ from contextflow.agents.state_machine import RunBlockedByState
 MODEL    = os.getenv("QWEN_MODEL", "openai/qwen-flash")
 BASE_URL = resolve_base_url()
 API_KEY  = resolve_api_key()
-
-# Per-state instructions — the agent changes personality per state
-STATE_INSTRUCTIONS: dict[str, str] = {
-    "greeting": (
-        "You are a friendly receptionist. Greet the user warmly and ask "
-        "what topic they would like to learn about. Keep it to 1-2 sentences."
-    ),
-    "gathering": (
-        "You are an expert interviewer. The user told you a topic. "
-        "Ask 1-2 short clarifying questions so you can give a better answer later. "
-        "Do NOT answer the topic yet."
-    ),
-    "answering": (
-        "You are a knowledgeable tutor. The user provided a topic and some "
-        "clarifications. Give a clear, detailed explanation in 3-5 sentences."
-    ),
-    "follow_up": (
-        "You are a helpful assistant wrapping up. Ask the user if they have any "
-        "follow-up questions. If not, say goodbye. Keep it to 1-2 sentences."
-    ),
-}
 
 
 # ── State Machine ──────────────────────────────────────────────────────────
@@ -89,11 +71,30 @@ def need_answer(from_st, to_st, ctx):
 
 
 # ── Agent ──────────────────────────────────────────────────────────────────
+# Dict-based instruction: the framework resolves the right one per state.
 agent = Agent(
     model=MODEL,
     name="stateful_tutor",
     description="A multi-phase assistant that changes behaviour per state.",
-    instruction="(overridden per-state)",       # placeholder; we swap it below
+    instruction={
+        "greeting": (
+            "You are a friendly receptionist. Greet the user warmly and ask "
+            "what topic they would like to learn about. Keep it to 1-2 sentences."
+        ),
+        "gathering": (
+            "You are an expert interviewer. The user told you a topic. "
+            "Ask 1-2 short clarifying questions so you can give a better answer later. "
+            "Do NOT answer the topic yet."
+        ),
+        "answering": (
+            "You are a knowledgeable tutor. The user provided a topic and some "
+            "clarifications. Give a clear, detailed explanation in 3-5 sentences."
+        ),
+        "follow_up": (
+            "You are a helpful assistant wrapping up. Ask the user if they have any "
+            "follow-up questions. If not, say goodbye. Keep it to 1-2 sentences."
+        ),
+    },
     base_url=BASE_URL,
     api_key=API_KEY,
     enable_thinking=True,
@@ -102,16 +103,9 @@ agent = Agent(
 )
 
 
-def set_instruction_for_state(state: str) -> None:
-    """Swap the agent's instruction to match the current state."""
-    new_instruction = STATE_INSTRUCTIONS.get(state, agent.instruction)
-    object.__setattr__(agent, "instruction", new_instruction)
-
-
 # ── Helpers ────────────────────────────────────────────────────────────────
 async def call_llm(user_text: str) -> str:
-    """Set the instruction for the current state, call the LLM, return output."""
-    set_instruction_for_state(agent.state)
+    """Call the LLM — instruction is resolved automatically from current state."""
     result = await agent.run_once(user_input=user_text)
     return result.output_text
 

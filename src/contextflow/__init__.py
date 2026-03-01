@@ -4,7 +4,7 @@ from contextflow.core.models import ContextNode, ContextStack, MessageRole
 from contextflow.core.composer import Composer
 from contextflow.core.parser import ResponseParser
 from contextflow.exceptions import ContextFlowError, ParseError, ProviderError, SandboxError
-from contextflow.agents import Agent, AgentRunResult, ToolSpec, AgentStateMachine
+from contextflow.agents import Agent, AgentRunResult, ChatSession, ToolSpec, AgentStateMachine, MultiAgentSession, SessionEvent, TransferRecord
 from contextflow.sandbox import AgentSandbox, SandboxExecutionResult, SandboxFileEntry
 from contextflow.providers import (
     ProviderConfig,
@@ -32,7 +32,12 @@ __all__ = [
     "Agent",
     "ToolSpec",
     "AgentRunResult",
+    "ChatSession",
     "AgentStateMachine",
+    # Multi-agent
+    "MultiAgentSession",
+    "SessionEvent",
+    "TransferRecord",
     # Sandbox
     "AgentSandbox",
     "SandboxExecutionResult",
