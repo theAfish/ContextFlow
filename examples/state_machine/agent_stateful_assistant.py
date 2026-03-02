@@ -20,14 +20,13 @@ Run:
 import asyncio
 import os
 
-from contextflow import Agent, AgentStateMachine, resolve_api_key, resolve_base_url
+from contextflow import Agent, AgentStateMachine
 from contextflow.agents.state_machine import RunBlockedByState
 
 
 # ── Config ─────────────────────────────────────────────────────────────────
 MODEL    = os.getenv("QWEN_MODEL", "openai/qwen-flash")
-BASE_URL = resolve_base_url()
-API_KEY  = resolve_api_key()
+# QWEN_API_KEY / QWEN_BASE_URL are read from the environment automatically
 
 
 # ── State Machine ──────────────────────────────────────────────────────────
@@ -95,8 +94,6 @@ agent = Agent(
             "follow-up questions. If not, say goodbye. Keep it to 1-2 sentences."
         ),
     },
-    base_url=BASE_URL,
-    api_key=API_KEY,
     enable_thinking=True,
     tools=[],
     state_machine=sm,

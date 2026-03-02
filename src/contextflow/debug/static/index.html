@@ -78,6 +78,25 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   text-align: right;
 }
 
+.header-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.header-btn:hover {
+  background: var(--bg-input);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.header-btn:active { transform: translateY(1px); }
+
 /* ── Chat ──────────────────────────────────────────────────────────── */
 .chat-messages {
   flex: 1;
@@ -133,6 +152,31 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-bottom-left-radius: 2px;
+}
+.msg.assistant.waiting {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+  min-width: 84px;
+}
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.typing-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  animation: typing-bounce 1.2s infinite ease-in-out;
+}
+.typing-dots span:nth-child(2) { animation-delay: .15s; }
+.typing-dots span:nth-child(3) { animation-delay: .3s; }
+@keyframes typing-bounce {
+  0%, 80%, 100% { opacity: .3; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
 }
 .msg.agent-trace {
   background: rgba(188, 140, 255, .08);
@@ -342,6 +386,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .session-msg .role.user { color: var(--accent); }
 .session-msg .role.assistant { color: var(--green); }
 .session-msg .role.system { color: var(--yellow); }
+.session-msg .role.tool { color: var(--purple); }
 .session-msg .agent-tag {
   margin-left: 8px;
   padding: 1px 8px;
@@ -580,6 +625,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .context-msg-role.system  { background: rgba(210,153,34,.15); color: var(--yellow); }
 .context-msg-role.user    { background: rgba(88,166,255,.12); color: var(--accent); }
 .context-msg-role.assistant { background: rgba(63,185,80,.12); color: var(--green); }
+.context-msg-role.tool    { background: rgba(188,140,255,.12); color: var(--purple); }
 .context-msg-content {
   background: var(--bg);
   border: 1px solid var(--border);
@@ -618,6 +664,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
       <div class="status-dot"></div>
       <h1>ContextFlow Debug</h1>
       <span class="badge" id="model-badge">—</span>
+      <button class="header-btn" onclick="resetSession()" title="Start a new session">🔄 New Session</button>
       <div class="agent-info">
         <div id="agent-name">—</div>
         <div id="tracked-agents">agents: —</div>
@@ -722,6 +769,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 let wsConnected = false;
 let ws = null;
 let sending = false;
+let agentBusy = false;
 
 // ── DOM helpers ──────────────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
@@ -762,10 +810,12 @@ async function apiFetch(path, opts = {}) {
 // ── Chat ─────────────────────────────────────────────────────────────
 // Map to store call_ids for each message index
 let chatMsgCallIds = [];
+let waitingBubble = null;
 
 function agentIcon(agentName, role, kind) {
   if (role === 'user') return '🧑';
   if (kind === 'agent_trace') return '🧠';
+  if (role === 'tool' || kind === 'tool_call' || kind === 'tool_result') return '🔧';
   const lowered = (agentName || '').toLowerCase();
   if (lowered.includes('weather')) return '🌦️';
   if (lowered.includes('knowledge')) return '📚';
@@ -821,6 +871,52 @@ function appendChatMsg(role, text, callIds, opts = {}) {
   container.scrollTop = container.scrollHeight;
 }
 
+function showWaitingBubble(agentName = 'assistant') {
+  if (waitingBubble && !waitingBubble.isConnected) {
+    waitingBubble = null;
+  }
+  if (waitingBubble) return;
+
+  const container = $('#chat-messages');
+  const empty = container.querySelector('.empty-state');
+  if (empty) empty.remove();
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'chat-bubble-wrapper assistant';
+
+  const speaker = document.createElement('div');
+  speaker.className = 'msg-speaker';
+  speaker.innerHTML = `
+    <span class="msg-speaker-icon">${agentIcon(agentName, 'assistant', 'chat')}</span>
+    <span class="msg-speaker-name">${escapeHtml(agentName || 'assistant')}</span>
+    <span>· thinking</span>
+  `;
+
+  const msg = document.createElement('div');
+  msg.className = 'msg assistant waiting';
+  msg.innerHTML = '<span class="typing-dots" aria-label="Agent is thinking" role="status"><span></span><span></span><span></span></span><span>Waiting for response...</span>';
+
+  wrapper.appendChild(speaker);
+  wrapper.appendChild(msg);
+  container.appendChild(wrapper);
+  container.scrollTop = container.scrollHeight;
+  waitingBubble = wrapper;
+}
+
+function hideWaitingBubble() {
+  if (!waitingBubble) return;
+  waitingBubble.remove();
+  waitingBubble = null;
+}
+
+function setWaitingVisible(visible) {
+  if (visible) {
+    showWaitingBubble((($('#agent-name').textContent || '').trim()) || 'assistant');
+  } else {
+    hideWaitingBubble();
+  }
+}
+
 async function sendMessage() {
   const text = chatInput.value.trim();
   if (!text || sending) return;
@@ -831,6 +927,7 @@ async function sendMessage() {
   chatInput.style.height = 'auto';
 
   appendChatMsg('user', text, [], { agentName: 'human', kind: 'chat' });
+  setWaitingVisible(true);
 
   try {
     const data = await apiFetch('/api/chat', {
@@ -874,14 +971,19 @@ async function sendMessage() {
     }
   } catch (err) {
     appendChatMsg('error', `Network error: ${err.message}`, [], { agentName: 'system', kind: 'error' });
+  } finally {
+    sending = false;
+    $('#send-btn').disabled = false;
+    chatInput.focus();
+
+    // If backend already idle, clear waiting; otherwise keep it until status says done.
+    if (!agentBusy) {
+      setWaitingVisible(false);
+    }
+
+    // Refresh debug panels
+    refreshAll();
   }
-
-  sending = false;
-  $('#send-btn').disabled = false;
-  chatInput.focus();
-
-  // Refresh debug panels
-  refreshAll();
 }
 
 // ── Status / State ───────────────────────────────────────────────────
@@ -895,6 +997,13 @@ function updateStatus(s) {
   $('#current-state').textContent = s.current_state || '(none)';
   $('#stat-msgs').textContent = s.total_messages;
   $('#stat-calls').textContent = s.total_llm_calls;
+
+  agentBusy = !!s.is_busy;
+  if (agentBusy) {
+    setWaitingVisible(true);
+  } else if (!sending) {
+    setWaitingVisible(false);
+  }
 
   const badge = $('#run-badge');
   if (s.can_run) {
@@ -931,6 +1040,45 @@ async function doTransition(target) {
     alert('Error: ' + err.message);
   }
   refreshAll();
+}
+
+async function resetSession() {
+  if (!confirm('Are you sure you want to start a new session? This will clear all conversation history and debug data.')) {
+    return;
+  }
+  
+  try {
+    const data = await apiFetch('/api/reset', { method: 'POST' });
+    if (data.ok) {
+      // Clear the chat display
+      const chatMessages = $('#chat-messages');
+      chatMessages.innerHTML = `
+        <div class="empty-state">
+          <div class="icon">💬</div>
+          Send a message to start chatting with the agent.
+        </div>
+      `;
+      
+      // Update status
+      if (data.status) {
+        updateStatus(data.status);
+      }
+      
+      // Refresh all panels
+      await refreshAll();
+      
+      // Show success message briefly
+      appendChatMsg('assistant', '✨ New session started!', [], { 
+        agentName: 'system', 
+        kind: 'info' 
+      });
+    } else {
+      alert('Reset failed: ' + data.error);
+    }
+  } catch (err) {
+    console.error('Reset error:', err);
+    alert('Failed to reset session: ' + err.message);
+  }
 }
 
 // ── State Machine Detail ─────────────────────────────────────────────
@@ -990,20 +1138,28 @@ async function refreshState() {
 function renderChatTimeline(msgs) {
   const chat = $('#chat-messages');
   chatMsgCallIds = [];
+  waitingBubble = null;
 
   if (!msgs || msgs.length === 0) {
     chat.innerHTML = '<div class="empty-state"><div class="icon">💬</div>Send a message to start chatting with the agent.</div>';
+    if (sending || agentBusy) {
+      setWaitingVisible(true);
+    }
     return;
   }
 
   chat.innerHTML = '';
   msgs.forEach(m => {
-    if (m.role !== 'user' && m.role !== 'assistant') return;
+    if (m.role !== 'user' && m.role !== 'assistant' && m.role !== 'tool') return;
     appendChatMsg(m.role, m.content || '', m.call_ids || [], {
       agentName: m.agent_name || (m.role === 'user' ? 'human' : 'assistant'),
       kind: m.kind || 'chat',
     });
   });
+
+  if (sending || agentBusy) {
+    setWaitingVisible(true);
+  }
 }
 
 async function refreshSession() {
@@ -1127,6 +1283,7 @@ function connectWS() {
         apiFetch('/api/status').then(updateStatus);
       } else if (msg.type === 'conversation') {
         refreshSession();
+        apiFetch('/api/status').then(updateStatus);
       }
     } catch {}
   };

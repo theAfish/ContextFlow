@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
-from contextflow.agents.agent import Agent, AgentRunResult
+from contextflow.agents.agent import Agent
 from contextflow.core.models import ContextNode, MessageRole
 from contextflow.providers.client import AsyncLLMClient
 
@@ -266,11 +266,28 @@ class DebugSession:
                     else str(maybe_result)
                 )
             else:
-                result: AgentRunResult = await self.agent.run_once(
+                def _on_tool_call(tool_name: str, tool_args: dict[str, Any]) -> None:
+                    self._append_conversation_message(
+                        role="tool",
+                        content=f"[tool_call] {tool_name}({tool_args})",
+                        kind="tool_call",
+                        agent_name=self.agent.name,
+                    )
+
+                def _on_tool_result(tool_name: str, result: dict[str, Any]) -> None:
+                    self._append_conversation_message(
+                        role="tool",
+                        content=f"[tool_result] {tool_name}: {result}",
+                        kind="tool_result",
+                        agent_name=self.agent.name,
+                    )
+
+                response_text = await self.agent.run_with_tools(
                     user_input=user_input,
                     history=history if history else None,
+                    on_tool_call=_on_tool_call,
+                    on_tool_result=_on_tool_result,
                 )
-                response_text = result.output_text
 
             turn_call_ids = [record.call_id for record in self._llm_calls[calls_before:]]
             self._last_turn_call_ids = list(turn_call_ids)
@@ -307,6 +324,7 @@ class DebugSession:
             "can_run": sm.can_run() if sm else True,
             "total_llm_calls": len(self._llm_calls),
             "total_messages": len(self._conversation),
+            "is_busy": self._chat_lock.locked(),
         }
 
     def snapshot_conversation(self) -> list[dict[str, Any]]:
@@ -345,3 +363,18 @@ class DebugSession:
 
     def last_turn_call_ids(self) -> list[str]:
         return list(self._last_turn_call_ids)
+
+    def reset_session(self) -> None:
+        """Clear all conversation, LLM calls, and state changes to start fresh."""
+        self._conversation.clear()
+        self._llm_calls.clear()
+        self._state_changes.clear()
+        self._last_turn_call_ids.clear()
+        
+        # Reset state machines to initial state if they exist
+        for tracked_agent in self._agents.values():
+            if tracked_agent.state_machine is not None:
+                tracked_agent.state_machine.history.clear()
+                # Reset to initial state if defined
+                if hasattr(tracked_agent.state_machine, '_initial') and tracked_agent.state_machine._initial:
+                    tracked_agent.state_machine.current = tracked_agent.state_machine._initial

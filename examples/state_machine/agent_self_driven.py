@@ -27,12 +27,11 @@ Run:
 
 import asyncio
 import os
-from contextflow import Agent, AgentStateMachine, ContextNode, MessageRole, ResponseParser, resolve_api_key, resolve_base_url
+from contextflow import Agent, AgentStateMachine, ContextNode, MessageRole, ResponseParser
 
 # ── Config ──────────────────────────────────────────────────────────────────
 MODEL    = os.getenv("QWEN_MODEL", "openai/qwen-flash")
-BASE_URL = resolve_base_url()
-API_KEY  = resolve_api_key()
+# Agent will look for QWEN_API_KEY / QWEN_BASE_URL itself; set those env vars.
 
 MAX_AUTONOMOUS_STEPS = 10  # safety cap to prevent runaway loops
 
@@ -106,8 +105,6 @@ agent = Agent(
             + RESPONSE_FORMAT_INSTRUCTION
         ),
     },
-    base_url=BASE_URL,
-    api_key=API_KEY,
     enable_thinking=True,
     tools=[],
     state_machine=sm,

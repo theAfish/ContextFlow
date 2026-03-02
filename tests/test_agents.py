@@ -94,6 +94,33 @@ class TestAgentConstruction:
         assert agent.model == "custom/mymodel"
         assert agent.backend == "openai"
 
+    def test_credentials_auto_resolve_from_env(self, monkeypatch):
+        # environment variables should be consulted when no explicit values
+        monkeypatch.setenv("QWEN_API_KEY", "env-key")
+        monkeypatch.setenv("QWEN_BASE_URL", "http://envurl")
+        agent = Agent(
+            model="m",
+            name="N",
+            description="D",
+            instruction="I",
+        )
+        assert agent.api_key == "env-key"
+        assert agent.base_url == "http://envurl"
+
+    def test_explicit_credentials_override_env(self, monkeypatch):
+        monkeypatch.setenv("QWEN_API_KEY", "env-key")
+        monkeypatch.setenv("QWEN_BASE_URL", "http://envurl")
+        agent = Agent(
+            model="m",
+            name="N",
+            description="D",
+            instruction="I",
+            api_key="explicit",
+            base_url="http://explicit",
+        )
+        assert agent.api_key == "explicit"
+        assert agent.base_url == "http://explicit"
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Agent — tool execution

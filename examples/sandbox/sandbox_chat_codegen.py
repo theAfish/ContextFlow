@@ -4,14 +4,13 @@ import os
 from typing import Any
 
 from contextflow import Agent, AgentSandbox, ContextNode, MessageRole, ResponseParser, ParseError
-from contextflow import resolve_api_key, resolve_base_url
+# credentials will be pulled from environment automatically
 
 
 MODEL = os.getenv("QWEN_MODEL", "openai/qwen3-max")
-BASE_URL = resolve_base_url()
-API_KEY = resolve_api_key()
 ENABLE_THINKING = True
 MAX_TOOL_STEPS = 6
+# set your QWEN_API_KEY / QWEN_BASE_URL (or OPENAI_ variants) in the env
 
 
 async def main() -> None:
@@ -21,8 +20,6 @@ async def main() -> None:
         model=MODEL,
         name="sandbox_code_agent",
         description="Writes and edits code in an isolated sandbox based on user chat.",
-        base_url=BASE_URL,
-        api_key=API_KEY,
         enable_thinking=ENABLE_THINKING,
         instruction=(
             "You are a coding assistant with sandbox tools. "

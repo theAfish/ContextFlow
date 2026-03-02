@@ -11,13 +11,13 @@ Demonstrates how to attach an ``AgentStateMachine`` to an ``Agent`` so that:
 import asyncio
 import os
 
-from contextflow import Agent, AgentStateMachine, resolve_api_key, resolve_base_url
+from contextflow import Agent, AgentStateMachine
 
 
 # ── 1. Configure the LLM ──────────────────────────────────────────────────
 MODEL      = os.getenv("QWEN_MODEL", "openai/qwen-flash")
-BASE_URL   = resolve_base_url()
-API_KEY    = resolve_api_key()
+# credentials and URL are automatically pulled from environment when the
+# agent is constructed.  Make sure QWEN_API_KEY/QWEN_BASE_URL are set.
 
 USER_INPUT = "Explain what a finite state machine is in 2 sentences."
 
@@ -65,8 +65,6 @@ agent = Agent(
     name="stateful_agent",
     description="A stateful assistant to demonstrate AgentStateMachine.",
     instruction="You are a concise, helpful assistant.",
-    base_url=BASE_URL,
-    api_key=API_KEY,
     enable_thinking=True,
     tools=[],
     state_machine=sm,

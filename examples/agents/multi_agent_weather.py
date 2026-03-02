@@ -37,8 +37,6 @@ from contextflow import Agent, ChatSession, resolve_api_key, resolve_base_url
 
 # ── Config ──────────────────────────────────────────────────────────────────
 MODEL    = os.getenv("QWEN_MODEL", "openai/qwen-flash")
-BASE_URL = resolve_base_url()
-API_KEY  = resolve_api_key()
 
 MAX_TOOL_ROUNDS = 5  # safety cap to prevent infinite tool-call loops
 
@@ -115,8 +113,6 @@ weather_agent = Agent(
         "When you have gathered all the data you need, respond with a "
         "natural-language summary (no JSON)."
     ),
-    base_url=BASE_URL,
-    api_key=API_KEY,
     enable_thinking=True,
     tools=[get_weather, get_forecast],
 )
@@ -158,8 +154,6 @@ main_agent = Agent(
         '{"tool_call": {"name": "<tool_name>", "args": {<arguments>}}}\n\n'
         "When you have all the information, respond in natural language to the user."
     ),
-    base_url=BASE_URL,
-    api_key=API_KEY,
     enable_thinking=True,
     tools=[ask_weather_agent],
 )

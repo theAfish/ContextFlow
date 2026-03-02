@@ -43,7 +43,7 @@ One-time agent call:
 python examples/agent_once_qwen.py
 ```
 
-Edit variables at the top of the file (`BACKEND`, `MODEL`, `BASE_URL`, `API_KEY`, `USER_INPUT`) for your own setup.
+Edit variables at the top of the file (`BACKEND`, `MODEL`, `USER_INPUT`) for your own setup; credentials and endpoint are read from the environment automatically (`QWEN_API_KEY`, `QWEN_BASE_URL` or the `OPENAI_` equivalents).
 
 Multi-turn conversation call:
 
@@ -53,17 +53,17 @@ python examples/agent_stream_qwen.py
 
 This script starts a chat loop and keeps conversation history across turns. Type `exit` to stop.
 
-You can now skip manual `create_client(...)` wiring and let `Agent` resolve the client from provider fields.
+You can now skip manual `create_client(...)` wiring and let `Agent` resolve the client from provider fields.  When constructing an agent you no longer need to pass in `base_url` or `api_key`; they will be filled from the environment if omitted.
+
 You can also merge backend and model as `backend/model`, e.g. `openai/qwen3-max`:
 
 ```python
 agent = Agent(
-	model="openai/qwen3-max",
-	name="chat_agent",
-	description="Multi-turn chat assistant.",
-	instruction="You are concise and helpful.",
-	base_url=os.getenv("QWEN_BASE_URL"),
-	api_key=os.getenv("QWEN_API_KEY"),
+    model="openai/qwen3-max",
+    name="chat_agent",
+    description="Multi-turn chat assistant.",
+    instruction="You are concise and helpful.",
+    # credentials read automatically; nothing else required
 )
 
 result = await agent.run_once(user_input="hello")

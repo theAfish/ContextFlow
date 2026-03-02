@@ -148,6 +148,19 @@ def create_debug_app(session: DebugSession) -> FastAPI:
             return JSONResponse({"error": "Not found"}, status_code=404)
         return JSONResponse(record)
 
+    @app.post("/api/reset")
+    async def api_reset():
+        """Reset the session, clearing all conversation and debug data."""
+        try:
+            session.reset_session()
+            return JSONResponse({
+                "ok": True,
+                "message": "Session reset successfully",
+                "status": session.snapshot_status(),
+            })
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+
     @app.get("/api/state")
     async def api_state():
         sm = session.snapshot_state_machine()

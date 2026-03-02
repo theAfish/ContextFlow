@@ -1,14 +1,12 @@
 import asyncio
 import os
 
-from contextflow import Agent, resolve_api_key, resolve_base_url
+from contextflow import Agent
 
 
 MODEL = os.getenv("QWEN_MODEL", "openai/qwen-flash")
-BASE_URL = resolve_base_url()
-API_KEY = resolve_api_key()
 ENABLE_THINKING = True
-USER_INPUT = "What is LLM?"
+USER_INPUT = "What is LLM?"  # ensure QWEN_API_KEY / QWEN_BASE_URL are set in env
 
 
 async def main() -> None:
@@ -17,8 +15,6 @@ async def main() -> None:
         name="root_agent",
         description="General-purpose assistant.",
         instruction="You are a helpful assistant. Keep answers concise and factual.",
-        base_url=BASE_URL,
-        api_key=API_KEY,
         enable_thinking=ENABLE_THINKING,
         tools=[],
     )

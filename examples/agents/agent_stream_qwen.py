@@ -1,28 +1,27 @@
 import asyncio
 import os
 
-from contextflow import Agent, ChatSession, resolve_api_key, resolve_base_url
+from contextflow import Agent, ChatSession
 
 
 MODEL = os.getenv("QWEN_MODEL", "openai/qwen-flash")
-BASE_URL = resolve_base_url()
-API_KEY = resolve_api_key()
 ENABLE_THINKING = False
+# Make sure QWEN_API_KEY / QWEN_BASE_URL are defined in your environment
 
 
 async def main() -> None:
     agent = Agent(
         model=MODEL,
-        name="chat_agent",
+        name="root_agent",
         description="Multi-turn chat assistant.",
         instruction="You are a concise and helpful assistant for multi-turn conversation.",
-        base_url=BASE_URL,
-        api_key=API_KEY,
         enable_thinking=ENABLE_THINKING,
         tools=[],
     )
 
-    session = ChatSession(agent)
+    root_agent = agent
+
+    session = ChatSession(root_agent)
 
     print("Type 'exit' to stop the chat.\n")
 
@@ -31,7 +30,7 @@ async def main() -> None:
         if user_text.lower() == "exit":
             break
 
-        answer = await session.send(user_text)
+        answer = await session.send_with_tools(user_text)
 
         print(f"\nAssistant:\n{answer}")
         print()

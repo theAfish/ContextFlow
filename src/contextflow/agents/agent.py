@@ -10,7 +10,7 @@ from contextflow.core import Composer, ContextNode, MessageRole
 from contextflow.core.parser import ResponseParser
 from contextflow.providers import ProviderConfig, create_client
 from contextflow.providers.client import AsyncLLMClient
-from contextflow.providers.config import split_model_identifier
+from contextflow.providers.config import split_model_identifier, resolve_base_url, resolve_api_key
 from contextflow.runners import AsyncAgentRunner
 from contextflow.agents.state_machine import AgentStateMachine, RunBlockedByState
 
@@ -75,11 +75,23 @@ class Agent:
     _resolved_llm_client: AsyncLLMClient | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        """Auto-split ``"openai/qwen-flash"`` into backend + model."""
+        """Auto-split ``"openai/qwen-flash"`` into backend + model.
+
+        Also resolve any missing provider parameters so callers don't need to
+        import ``resolve_api_key``/``resolve_base_url`` or pass them
+        explicitly.  If ``base_url``/``api_key`` are ``None`` they will be
+        filled from the environment (or default) during initialization.
+        """
         parsed_backend, parsed_model = split_model_identifier(self.model)
         if parsed_backend is not None:
             object.__setattr__(self, "backend", parsed_backend)
             object.__setattr__(self, "model", parsed_model)
+
+        # --- automatically resolve credentials if not provided -------------
+        if self.base_url is None:
+            object.__setattr__(self, "base_url", resolve_base_url())
+        if self.api_key is None:
+            object.__setattr__(self, "api_key", resolve_api_key())
 
     # ------------------------------------------------------------------
     # State machine helpers
