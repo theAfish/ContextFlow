@@ -199,7 +199,7 @@ async def dispatch_tool(tool_name: str, tool_args: dict) -> dict:
     print(f"  🚀 Dispatching to [{sub_agent.name}]: {question}")
 
     # Use the framework's built-in agentic loop with the agent's own session
-    answer = await sub_agent.run_with_tools(
+    tool_result = await sub_agent.run_with_tools(
         question,
         max_rounds=MAX_TOOL_ROUNDS,
         on_tool_call=lambda name, args: print(f"    🔧 [{sub_agent.name}] tool: {name}({json.dumps(args, ensure_ascii=False)})"),
@@ -208,10 +208,11 @@ async def dispatch_tool(tool_name: str, tool_args: dict) -> dict:
 
     # Add this interaction to the sub-agent's own session history
     sub_session.history.append(ContextNode(role=MessageRole.USER, content=question))
-    sub_session.history.append(ContextNode(role=MessageRole.ASSISTANT, content=answer))
+    for exchange in tool_result.exchanges:
+        sub_session.history.append(exchange)
 
     print(f"  ✅ [{sub_agent.name}] responded")
-    return {"ok": True, "agent": sub_agent.name, "answer": answer}
+    return {"ok": True, "agent": sub_agent.name, "answer": tool_result.answer}
 
 
 async def run_orchestrator(user_input: str) -> str:

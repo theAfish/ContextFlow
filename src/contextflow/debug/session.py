@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import inspect
 import time
 from dataclasses import dataclass
@@ -244,14 +245,25 @@ class DebugSession:
             agent_name="human",
         )
 
-        history = [
-            ContextNode(
-                role=MessageRole.USER if m["role"] == "user" else MessageRole.ASSISTANT,
-                content=m["content"],
-            )
-            for m in self._conversation
-            if m.get("kind") == "chat"
-        ]
+        history: list[ContextNode] = []
+        for m in self._conversation:
+            kind = m.get("kind")
+            role = m.get("role")
+            content = m.get("content", "")
+
+            if kind not in {"chat", "tool_call", "tool_result"}:
+                continue
+
+            if kind == "tool_result":
+                mapped_role = MessageRole.USER
+            elif kind == "tool_call":
+                mapped_role = MessageRole.ASSISTANT
+            elif role == "user":
+                mapped_role = MessageRole.USER
+            else:
+                mapped_role = MessageRole.ASSISTANT
+
+            history.append(ContextNode(role=mapped_role, content=content))
         if history:
             history = history[:-1]
 
@@ -267,27 +279,38 @@ class DebugSession:
                 )
             else:
                 def _on_tool_call(tool_name: str, tool_args: dict[str, Any]) -> None:
+                    tool_call_payload = {
+                        "tool_call": {
+                            "name": tool_name,
+                            "args": tool_args,
+                        }
+                    }
                     self._append_conversation_message(
-                        role="tool",
-                        content=f"[tool_call] {tool_name}({tool_args})",
+                        role="assistant",
+                        content=json.dumps(tool_call_payload, ensure_ascii=False),
                         kind="tool_call",
                         agent_name=self.agent.name,
                     )
 
                 def _on_tool_result(tool_name: str, result: dict[str, Any]) -> None:
+                    tool_result_text = (
+                        f"Tool '{tool_name}' returned:\n"
+                        f"{json.dumps(result, ensure_ascii=False, indent=2)}\n\n"
+                        "Use this data to answer the user's question in natural language."
+                    )
                     self._append_conversation_message(
-                        role="tool",
-                        content=f"[tool_result] {tool_name}: {result}",
+                        role="user",
+                        content=tool_result_text,
                         kind="tool_result",
                         agent_name=self.agent.name,
                     )
 
-                response_text = await self.agent.run_with_tools(
+                response_text = (await self.agent.run_with_tools(
                     user_input=user_input,
                     history=history if history else None,
                     on_tool_call=_on_tool_call,
                     on_tool_result=_on_tool_result,
-                )
+                )).answer
 
             turn_call_ids = [record.call_id for record in self._llm_calls[calls_before:]]
             self._last_turn_call_ids = list(turn_call_ids)

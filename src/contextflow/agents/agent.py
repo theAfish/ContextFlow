@@ -52,6 +52,14 @@ class AgentRunResult:
 
 
 @dataclass(slots=True)
+class AgentToolResult:
+    """Returned by ``Agent.run_with_tools`` to include full conversation history."""
+
+    answer: str
+    exchanges: list[ContextNode]
+
+
+@dataclass(slots=True)
 class Agent:
     """Lightweight, reusable agent definition.
 
@@ -289,7 +297,7 @@ class Agent:
         max_rounds: int = 6,
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any]], None] | None = None,
-    ) -> str:
+    ) -> AgentToolResult:
         """Run the agent in an agentic loop: LLM → parse tool calls →
         execute tools → feed result back → repeat until a final answer.
 
@@ -308,11 +316,13 @@ class Agent:
 
         Returns
         -------
-        str
-            The agent's final natural-language answer.
+        AgentToolResult
+            Contains the agent's final natural-language answer and all exchanges
+            (tool calls, results) that occurred during the interaction.
         """
         current_history = list(history or [])
         current_input = user_input
+        exchanges: list[ContextNode] = []
 
         for _ in range(max_rounds):
             result = await self.run_once(
@@ -325,7 +335,8 @@ class Agent:
 
             if tool_call is None:
                 # No tool call → final answer
-                return raw_output
+                exchanges.append(ContextNode(role=MessageRole.ASSISTANT, content=raw_output))
+                return AgentToolResult(answer=raw_output, exchanges=exchanges)
 
             tool_name = tool_call.get("name", "")
             tool_args = tool_call.get("args", {})
@@ -338,16 +349,22 @@ class Agent:
             if on_tool_result is not None:
                 on_tool_result(tool_name, tool_result)
 
-            # Append exchange to history and loop back
-            current_history.append(ContextNode(role=MessageRole.USER, content=current_input))
-            current_history.append(ContextNode(role=MessageRole.ASSISTANT, content=raw_output))
-            current_input = (
+            # Track exchanges
+            exchanges.append(ContextNode(role=MessageRole.ASSISTANT, content=raw_output))
+            
+            tool_result_str = (
                 f"Tool '{tool_name}' returned:\n"
                 f"{json.dumps(tool_result, ensure_ascii=False, indent=2)}\n\n"
                 "Use this data to answer the user's question in natural language."
             )
+            exchanges.append(ContextNode(role=MessageRole.USER, content=tool_result_str))
 
-        return "[Max tool rounds reached]"
+            # Append exchange to history and loop back
+            current_history.append(ContextNode(role=MessageRole.USER, content=current_input))
+            current_history.append(ContextNode(role=MessageRole.ASSISTANT, content=raw_output))
+            current_input = tool_result_str
+
+        return AgentToolResult(answer="[Max tool rounds reached]", exchanges=exchanges)
 
     # ------------------------------------------------------------------
     # Interactive chat REPL
@@ -390,15 +407,19 @@ class Agent:
                 break
 
             if use_tools:
-                answer = await self.run_with_tools(
+                tool_result = await self.run_with_tools(
                     user_text, history=history, max_rounds=max_tool_rounds,
                 )
+                answer = tool_result.answer
+                # Add all exchanges to history
+                history.append(ContextNode(role=MessageRole.USER, content=user_text))
+                for exchange in tool_result.exchanges:
+                    history.append(exchange)
             else:
                 result = await self.run_once(user_input=user_text, history=history)
                 answer = result.output_text
-
-            history.append(ContextNode(role=MessageRole.USER, content=user_text))
-            history.append(ContextNode(role=MessageRole.ASSISTANT, content=answer))
+                history.append(ContextNode(role=MessageRole.USER, content=user_text))
+                history.append(ContextNode(role=MessageRole.ASSISTANT, content=answer))
 
             if on_response is not None:
                 on_response(answer)
@@ -449,16 +470,22 @@ class ChatSession:
     ) -> str:
         """Send a message using the agentic tool loop.  History is updated
         automatically."""
-        answer = await self.agent.run_with_tools(
+        result = await self.agent.run_with_tools(
             user_input,
             history=self.history,
             max_rounds=max_rounds,
             on_tool_call=on_tool_call,
             on_tool_result=on_tool_result,
         )
+        
+        # Add the user input first
         self.history.append(ContextNode(role=MessageRole.USER, content=user_input))
-        self.history.append(ContextNode(role=MessageRole.ASSISTANT, content=answer))
-        return answer
+        
+        # Add all the exchanges (tool calls, results, and final answer)
+        for exchange in result.exchanges:
+            self.history.append(exchange)
+        
+        return result.answer
 
     def clear(self) -> None:
         """Reset conversation history."""

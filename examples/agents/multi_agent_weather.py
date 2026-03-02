@@ -128,7 +128,7 @@ def ask_weather_agent(question: str) -> dict:
     Send any weather question and the weather agent will look up the data
     and return an answer.
     """
-    answer = asyncio.get_event_loop().run_until_complete(
+    tool_result = asyncio.get_event_loop().run_until_complete(
         weather_agent.run_with_tools(
             question,
             max_rounds=MAX_TOOL_ROUNDS,
@@ -136,7 +136,7 @@ def ask_weather_agent(question: str) -> dict:
             on_tool_result=lambda name, res: print(f"    📦 [weather_agent] result: {json.dumps(res, ensure_ascii=False)[:200]}"),
         )
     )
-    return {"status": "success", "agent": "weather_agent", "answer": answer}
+    return {"status": "success", "agent": "weather_agent", "answer": tool_result.answer}
 
 
 # The main orchestrator agent

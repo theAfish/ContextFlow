@@ -153,6 +153,16 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   border: 1px solid var(--border);
   border-bottom-left-radius: 2px;
 }
+.msg.tool {
+  background: rgba(248, 81, 73, .10);
+  border: 1px solid rgba(248, 81, 73, .45);
+  color: var(--text);
+  border-bottom-left-radius: 2px;
+}
+.msg.tool.tool-call {
+  background: rgba(188, 140, 255, .10);
+  border-color: rgba(188, 140, 255, .55);
+}
 .msg.assistant.waiting {
   display: inline-flex;
   align-items: center;
@@ -834,10 +844,13 @@ function appendChatMsg(role, text, callIds, opts = {}) {
   const icon = agentIcon(opts.agentName, role, opts.kind);
   const displayAgent = opts.agentName || (role === 'user' ? 'human' : 'assistant');
   const kind = opts.kind || 'chat';
+  const isToolKind = kind === 'tool_call' || kind === 'tool_result';
+  const visualRole = isToolKind ? 'tool' : role;
+  const layoutRole = isToolKind ? 'assistant' : role;
 
   // Create wrapper
   const wrapper = document.createElement('div');
-  wrapper.className = `chat-bubble-wrapper ${role}`;
+  wrapper.className = `chat-bubble-wrapper ${layoutRole}`;
 
   // Create speaker label (outside the bubble)
   const speaker = document.createElement('div');
@@ -850,7 +863,10 @@ function appendChatMsg(role, text, callIds, opts = {}) {
 
   // Create message bubble
   const msg = document.createElement('div');
-  msg.className = `msg ${role}`;
+  msg.className = `msg ${visualRole}`;
+  if (isToolKind) {
+    msg.classList.add(kind === 'tool_call' ? 'tool-call' : 'tool-result');
+  }
   if (opts.kind === 'agent_trace') {
     msg.classList.add('agent-trace');
   }
